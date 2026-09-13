@@ -58,11 +58,11 @@ Copy the variables from `standup/.env.example` into the root `.env` when using C
 3. Add the exact login URI, such as `https://eventory.ddns.net/standup/auth/google`, to **Authorized redirect URIs**.
 4. Put the client ID in `GOOGLE_CLIENT_ID`. A client secret is not required by this login flow.
 
-Any verified Google account can sign in. The Google account ID is the stable application identity; email and display name are refreshed on later logins.
+Only verified Google emails on the administrator-managed allowlist can sign in. The Google account ID is the stable application identity; email and display name are refreshed on later logins.
 
 ### Administrator
 
-After signing in through Google, open **Admin** and enter the password `admin`. This is intentionally simple for a small trusted group: every signed-in user can see the Admin button, and anyone who knows the password can change the sprint or reminder roster. Change this design before exposing the tool to people you do not trust.
+Choose **Admin sign in** on the public login page and enter the password `admin`; no Google login is required for administration. The password-only admin session can manage the email allowlist, sprints, reminder settings, and integrations, but it cannot submit a standup. This is intentionally simple for a small trusted group. Change this design before exposing the tool to people you do not trust.
 
 ### Google Sheets
 
@@ -78,7 +78,7 @@ The application creates one worksheet per sprint. Members are columns; every Ban
 
 The defaults use Gmail SMTP. Enable 2-Step Verification on the sending Google account, create an app password, and set `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. The normal Google account password must not be used. A different SMTP provider can be selected with the remaining SMTP settings.
 
-At and after 20:00 Asia/Bangkok, the application sends one reminder to each active sprint member who has not submitted that day's standup. The admin can disable reminders per person.
+At and after the administrator-selected Asia/Bangkok time (20:00 by default), the application sends one reminder to each active sprint member who has not submitted that day's standup. The admin can disable reminders per person or trigger the missing-person reminder run immediately.
 
 ## Deployment notes
 

@@ -67,3 +67,29 @@ test('sessions expire and admin elevation has its own expiry', async (t) => {
   setNow('2026-09-13T05:01:01.000Z');
   assert.equal(store.sessionForToken(session.token), null);
 });
+
+test('admin controls allowed emails and the persisted reminder time', async (t) => {
+  const { store } = await fixture(t);
+  assert.equal(store.isEmailAllowed('friend@example.com'), false);
+  store.allowEmail('Friend@Example.com');
+  assert.equal(store.isEmailAllowed('friend@example.com'), true);
+  assert.equal(store.listAllowedEmails()[0].email, 'friend@example.com');
+  assert.equal(store.getReminderTime(), '20:00');
+  assert.equal(store.setReminderTime('18:45'), '18:45');
+  assert.equal(store.getReminderTime(), '18:45');
+  assert.equal(store.removeAllowedEmail('FRIEND@example.com'), true);
+  assert.equal(store.isEmailAllowed('friend@example.com'), false);
+});
+
+test('existing users are migrated onto the allowlist only once', async (t) => {
+  const { store } = await fixture(t);
+  const user = store.loginGoogleUser(profile('existing'));
+  store.db.prepare("DELETE FROM app_settings WHERE key = 'allowlist_initialized'").run();
+  store.close();
+  await store.initialize();
+  assert.equal(store.isEmailAllowed(user.email), true);
+  store.removeAllowedEmail(user.email);
+  store.close();
+  await store.initialize();
+  assert.equal(store.isEmailAllowed(user.email), false);
+});

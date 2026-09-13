@@ -29,6 +29,11 @@ function clearSessionCookie(config) {
   return `standup_session=; Path=${config.basePath}; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
+function adminCookie(config, token, maxAge = 60 * 60) {
+  const secure = config.appOrigin.startsWith('https://') ? '; Secure' : '';
+  return `standup_admin=${encodeURIComponent(token)}; Path=${config.basePath}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
 function safeDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return null;
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -37,6 +42,11 @@ function safeDate(value) {
 
 function answer(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizedEmail(value) {
+  const email = answer(value).toLocaleLowerCase();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
 export async function createStandupApplication(options = {}) {
@@ -82,10 +92,12 @@ export async function createStandupApplication(options = {}) {
   }
 
   function requireAdmin(req, res, next) {
-    const session = req.standupSession;
-    if (!session.adminUntil || session.adminUntil <= new Date().toISOString()) {
+    const token = parseCookies(req.get('cookie')).standup_admin;
+    const session = store.adminSessionForToken(token);
+    if (!session) {
       return res.status(403).json({ message: 'Admin password verification is required.' });
     }
+    req.standupAdminToken = token;
     next();
   }
 
@@ -112,6 +124,9 @@ export async function createStandupApplication(options = {}) {
       const ticket = await googleClient.verifyIdToken({ idToken: req.body?.credential, audience: config.googleClientId });
       const profile = ticket.getPayload();
       if (!profile?.sub || !profile.email || profile.email_verified !== true) throw new Error('The Google email is not verified.');
+      if (!store.isEmailAllowed(profile.email)) {
+        return res.redirect(303, `${config.basePath}/?auth_error=not_allowed`);
+      }
       const user = store.loginGoogleUser({
         id: profile.sub,
         email: profile.email,
@@ -181,7 +196,7 @@ export async function createStandupApplication(options = {}) {
     res.json(result.submission);
   });
 
-  app.post(`${config.basePath}/api/admin/session`, loadSession, requireSameOrigin, async (req, res) => {
+  app.post(`${config.basePath}/api/admin/session`, requireSameOrigin, async (req, res) => {
     const key = req.ip;
     const recent = (adminAttempts.get(key) ?? []).filter((value) => Date.now() - value < 15 * 60 * 1000);
     if (recent.length >= 5) return res.status(429).json({ message: 'Too many attempts. Try again in 15 minutes.' });
@@ -191,20 +206,35 @@ export async function createStandupApplication(options = {}) {
       return res.status(401).json({ message: 'Incorrect admin password.' });
     }
     adminAttempts.delete(key);
-    const adminUntil = store.elevateSession(req.standupToken);
-    res.json({ adminUntil });
+    const session = store.createAdminSession();
+    res.setHeader('Set-Cookie', adminCookie(config, session.token));
+    res.json({ adminUntil: session.expiresAt });
   });
 
-  app.get(`${config.basePath}/api/admin`, loadSession, requireAdmin, (req, res) => {
+  app.get(`${config.basePath}/api/admin`, requireAdmin, (req, res) => {
     res.json({
       users: store.listUsers().map((user) => ({ ...user, remindersEnabled: Boolean(user.remindersEnabled) })),
+      allowedEmails: store.listAllowedEmails(),
       sprints: store.listSprints(),
       sheet: { enabled: sheetSync.enabled, jobs: store.sheetSyncStatus() },
-      email: { enabled: mailer.enabled, deliveries: store.reminderStatus() },
+      email: { enabled: mailer.enabled, time: store.getReminderTime(), deliveries: store.reminderStatus() },
     });
   });
 
-  app.post(`${config.basePath}/api/admin/sprints`, loadSession, requireSameOrigin, requireAdmin, (req, res) => {
+  app.post(`${config.basePath}/api/admin/allowed-emails`, requireSameOrigin, requireAdmin, (req, res) => {
+    const email = normalizedEmail(req.body?.email);
+    if (!email) return res.status(400).json({ message: 'Enter a valid email address.' });
+    res.status(201).json(store.allowEmail(email));
+  });
+
+  app.delete(`${config.basePath}/api/admin/allowed-emails/:email`, requireSameOrigin, requireAdmin, (req, res) => {
+    const email = normalizedEmail(req.params.email);
+    if (!email) return res.status(400).json({ message: 'Enter a valid email address.' });
+    if (!store.removeAllowedEmail(email)) return res.status(404).json({ message: 'That email is not on the allowlist.' });
+    res.status(204).end();
+  });
+
+  app.post(`${config.basePath}/api/admin/sprints`, requireSameOrigin, requireAdmin, (req, res) => {
     const name = answer(req.body?.name).replace(/\s+/g, ' ');
     if (name.length < 1 || name.length > 60) return res.status(400).json({ message: 'Use a sprint name between 1 and 60 characters.' });
     const sprint = store.createSprint(name);
@@ -212,14 +242,30 @@ export async function createStandupApplication(options = {}) {
     res.status(201).json(sprint);
   });
 
-  app.patch(`${config.basePath}/api/admin/users/:id`, loadSession, requireSameOrigin, requireAdmin, (req, res) => {
+  app.patch(`${config.basePath}/api/admin/users/:id`, requireSameOrigin, requireAdmin, (req, res) => {
     if (typeof req.body?.remindersEnabled !== 'boolean') return res.status(400).json({ message: 'Choose whether reminders are enabled.' });
     const user = store.setUserReminders(req.params.id, req.body.remindersEnabled);
     if (!user) return res.status(404).json({ message: 'That user no longer exists.' });
     res.json({ ...user, remindersEnabled: Boolean(user.remindersEnabled) });
   });
 
-  app.post(`${config.basePath}/api/admin/sheets/retry`, loadSession, requireSameOrigin, requireAdmin, (req, res) => {
+  app.patch(`${config.basePath}/api/admin/reminders`, requireSameOrigin, requireAdmin, (req, res) => {
+    const time = answer(req.body?.time);
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      return res.status(400).json({ message: 'Choose a valid reminder time.' });
+    }
+    res.json({ time: store.setReminderTime(time) });
+  });
+
+  app.post(`${config.basePath}/api/admin/reminders/send`, requireSameOrigin, requireAdmin, async (req, res) => {
+    if (!mailer.enabled) return res.status(409).json({ message: 'Email is not configured.' });
+    const result = await scheduler.sendRemindersNow();
+    if (result.busy) return res.status(409).json({ message: 'Reminder processing is already running.' });
+    if (result.noSprint) return res.status(409).json({ message: 'There is no active sprint.' });
+    res.json(result);
+  });
+
+  app.post(`${config.basePath}/api/admin/sheets/retry`, requireSameOrigin, requireAdmin, (req, res) => {
     store.retryAllSheetSyncs();
     void scheduler.runOnce();
     res.status(202).json({ message: 'Sheet synchronization has been queued.' });

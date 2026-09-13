@@ -22,6 +22,7 @@ test('Sheet matrix gives each member a column and each date three merged rows', 
   assert.deepEqual(matrix.values[3], ['', 'To do', 'Test', '']);
   assert.deepEqual(matrix.values[4], ['', 'Problem', '-', '']);
   assert.deepEqual(matrix.values[5], ['14 Sept 2026', 'Done', '', '']);
+  assert.deepEqual(matrix.merges[0], { startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 });
   assert.deepEqual(matrix.merges[1], { startRowIndex: 2, endRowIndex: 5, startColumnIndex: 0, endColumnIndex: 1 });
   assert.equal(matrix.rowCount, 8);
   assert.equal(matrix.columnCount, 4);

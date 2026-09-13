@@ -22,6 +22,7 @@ h3 { font-size: 1rem; }
 .lead { max-width: 460px; margin-top: 18px; color: #607568; font-size: 1.05rem; line-height: 1.65; }
 .small-copy { color: #74867c; font-size: .82rem; line-height: 1.5; }
 .google-signin { min-height: 44px; margin: 30px 0 16px; }
+.admin-entry { margin-top: 18px; }
 .legal-links { display: flex; gap: 14px; margin-top: 12px; font-size: .82rem; }
 .legal-links a, .legal-footer a { color: #356d59; }
 .app-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
@@ -94,6 +95,8 @@ button[type="submit"]:hover { background: #25664f; }
 .admin-user small { margin-top: 2px; color: #73857b; }
 .admin-user input { width: 19px; height: 19px; accent-color: #2f795f; }
 .secondary-button { background: #e2ede8; color: #275f4c; }
+.danger-button { color: #a12b34; }
+.reminder-action { margin-top: 10px; }
 .integration-jobs { display: grid; gap: 6px; margin-top: 12px; color: #65796e; font-size: .82rem; overflow-wrap: anywhere; }
 .legal-page { width: min(820px, 100%); margin: 0 auto; padding: 38px 24px 64px; }
 .legal-card { margin-top: 28px; padding: clamp(28px, 6vw, 54px); border: 1px solid #d7e2dd; border-radius: 24px; background: #fff; box-shadow: 0 18px 52px #17324d0d; }

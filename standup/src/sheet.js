@@ -9,7 +9,9 @@ export function buildSheetMatrix(dataset) {
   const byKey = new Map(dataset.submissions.map((submission) => [
     `${submission.localDate}:${submission.userId}`, submission,
   ]));
-  const merges = [{ startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: columnCount }];
+  // Keep this merge entirely inside the two frozen label columns. Google Sheets
+  // rejects merges that cross from frozen columns into non-frozen member columns.
+  const merges = [{ startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 }];
   for (const localDate of dateRange(dataset.startDate, dataset.endDate)) {
     const startRow = values.length;
     const prompts = [

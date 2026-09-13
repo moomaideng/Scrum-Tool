@@ -50,3 +50,46 @@ test('scheduler does not email a member who submitted', async (t) => {
   await scheduler.runOnce();
   assert.equal(count, 0);
 });
+
+test('scheduler uses the admin-selected Bangkok reminder time', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'standup-scheduler-'));
+  let now = new Date('2026-09-13T11:29:00.000Z'); // 18:29 Bangkok
+  const store = new StandupStore(directory, { now: () => now });
+  await store.initialize();
+  t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
+  store.loginGoogleUser({ id: 'one', email: 'one@example.com', name: 'One' });
+  store.createSprint('Sprint 1');
+  store.setReminderTime('18:30');
+  let count = 0;
+  const scheduler = new StandupScheduler({
+    store,
+    sheetSync: { enabled: false },
+    mailer: { enabled: true, async send() { count += 1; } },
+    applicationUrl: 'https://example.com/standup/', now: () => now, logger: { error() {} },
+  });
+  await scheduler.runOnce();
+  assert.equal(count, 0);
+  now = new Date('2026-09-13T11:30:00.000Z');
+  await scheduler.runOnce();
+  assert.equal(count, 1);
+});
+
+test('admin can manually send reminders before the scheduled time', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'standup-scheduler-'));
+  const now = new Date('2026-09-13T05:00:00.000Z');
+  const store = new StandupStore(directory, { now: () => now });
+  await store.initialize();
+  t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
+  store.loginGoogleUser({ id: 'one', email: 'one@example.com', name: 'One' });
+  store.createSprint('Sprint 1');
+  let count = 0;
+  const scheduler = new StandupScheduler({
+    store,
+    sheetSync: { enabled: false },
+    mailer: { enabled: true, async send() { count += 1; } },
+    applicationUrl: 'https://example.com/standup/', now: () => now, logger: { error() {} },
+  });
+  const result = await scheduler.sendRemindersNow();
+  assert.deepEqual(result, { sent: 1, failed: 0, busy: false, noSprint: false });
+  assert.equal(count, 1);
+});

@@ -55,6 +55,15 @@ test('Google login creates a cookie session and permits a current-day submission
   assert.equal(privacy.status, 200);
   assert.match(await privacy.text(), /Privacy policy/);
   const csrf = 'known-csrf-token';
+  const deniedLogin = await fetch(`${origin}/standup/auth/google`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: `g_csrf_token=${csrf}` },
+    body: new URLSearchParams({ credential: 'google-token', g_csrf_token: csrf }),
+  });
+  assert.equal(deniedLogin.status, 303);
+  assert.equal(deniedLogin.headers.get('location'), '/standup/?auth_error=not_allowed');
+  store.allowEmail('member@example.com');
   const login = await fetch(`${origin}/standup/auth/google`, {
     method: 'POST',
     redirect: 'manual',
@@ -116,8 +125,6 @@ test('hardcoded admin password can start a new sprint', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'standup-admin-'));
   const store = new StandupStore(directory);
   await store.initialize();
-  const user = store.loginGoogleUser({ id: 'admin', email: 'admin@example.com', name: 'Admin' });
-  const session = store.createSession(user.id);
   const config = {
     port: 0, basePath: '/standup', appOrigin: 'https://standup.example',
     publicDirectory: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public'), dataDirectory: directory,
@@ -135,14 +142,27 @@ test('hardcoded admin password can start a new sprint', async (t) => {
     await rm(directory, { recursive: true, force: true });
   });
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const headers = { 'Content-Type': 'application/json', Cookie: `standup_session=${session.token}`, Origin: config.appOrigin };
+  const headers = { 'Content-Type': 'application/json', Origin: config.appOrigin };
   const unlock = await fetch(`${origin}/standup/api/admin/session`, {
     method: 'POST', headers, body: JSON.stringify({ password: 'admin' }),
   });
   assert.equal(unlock.status, 200);
+  const adminCookie = unlock.headers.get('set-cookie').split(';')[0];
   const create = await fetch(`${origin}/standup/api/admin/sprints`, {
-    method: 'POST', headers, body: JSON.stringify({ name: 'Sprint 1' }),
+    method: 'POST', headers: { ...headers, Cookie: adminCookie }, body: JSON.stringify({ name: 'Sprint 1' }),
   });
   assert.equal(create.status, 201);
   assert.equal((await create.json()).name, 'Sprint 1');
+
+  const allow = await fetch(`${origin}/standup/api/admin/allowed-emails`, {
+    method: 'POST', headers: { ...headers, Cookie: adminCookie }, body: JSON.stringify({ email: 'Friend@Example.com' }),
+  });
+  assert.equal(allow.status, 201);
+  assert.equal((await allow.json()).email, 'friend@example.com');
+
+  const reminderTime = await fetch(`${origin}/standup/api/admin/reminders`, {
+    method: 'PATCH', headers: { ...headers, Cookie: adminCookie }, body: JSON.stringify({ time: '19:30' }),
+  });
+  assert.equal(reminderTime.status, 200);
+  assert.equal((await reminderTime.json()).time, '19:30');
 });

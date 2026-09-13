@@ -38,6 +38,14 @@ export class StandupStore {
         created_at TEXT NOT NULL,
         last_login_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS allowed_emails (
+        email TEXT PRIMARY KEY COLLATE NOCASE,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -45,6 +53,10 @@ export class StandupStore {
         admin_until TEXT
       );
       CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
+      CREATE TABLE IF NOT EXISTS admin_sessions (
+        token_hash TEXT PRIMARY KEY,
+        expires_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS sprints (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -92,6 +104,12 @@ export class StandupStore {
         completed_at TEXT,
         last_error TEXT
       );
+      INSERT INTO allowed_emails (email, created_at)
+        SELECT lower(email), created_at FROM users
+        WHERE NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'allowlist_initialized')
+        ON CONFLICT(email) DO NOTHING;
+      INSERT OR IGNORE INTO app_settings (key, value) VALUES ('allowlist_initialized', 'true');
+      INSERT OR IGNORE INTO app_settings (key, value) VALUES ('reminder_time', '20:00');
     `);
   }
 
@@ -138,6 +156,51 @@ export class StandupStore {
       }
       return this.getUser(profile.id);
     });
+  }
+
+  isEmailAllowed(email) {
+    return Boolean(this.db.prepare('SELECT 1 FROM allowed_emails WHERE email = ? COLLATE NOCASE').get(email));
+  }
+
+  allowEmail(email) {
+    this.db.prepare('INSERT OR IGNORE INTO allowed_emails (email, created_at) VALUES (?, ?)')
+      .run(email.toLocaleLowerCase(), this.nowIso());
+    return row(this.db.prepare(`
+      SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName
+      FROM allowed_emails ae LEFT JOIN users u ON u.email = ae.email COLLATE NOCASE
+      WHERE ae.email = ? COLLATE NOCASE
+    `).get(email));
+  }
+
+  removeAllowedEmail(email) {
+    return this.transaction(() => {
+      const user = this.db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email);
+      if (user) {
+        this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+        this.db.prepare('UPDATE users SET reminders_enabled = 0 WHERE id = ?').run(user.id);
+      }
+      return Boolean(this.db.prepare('DELETE FROM allowed_emails WHERE email = ? COLLATE NOCASE').run(email).changes);
+    });
+  }
+
+  listAllowedEmails() {
+    return rows(this.db.prepare(`
+      SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName
+      FROM allowed_emails ae LEFT JOIN users u ON u.email = ae.email COLLATE NOCASE
+      ORDER BY ae.email COLLATE NOCASE
+    `).all());
+  }
+
+  getReminderTime() {
+    return this.db.prepare("SELECT value FROM app_settings WHERE key = 'reminder_time'").get()?.value ?? '20:00';
+  }
+
+  setReminderTime(value) {
+    this.db.prepare(`
+      INSERT INTO app_settings (key, value) VALUES ('reminder_time', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(value);
+    return this.getReminderTime();
   }
 
   getUser(id) {
@@ -196,6 +259,28 @@ export class StandupStore {
 
   deleteSession(token) {
     if (token) this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token));
+  }
+
+  createAdminSession(maxAgeSeconds = 60 * 60) {
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(this.now().getTime() + maxAgeSeconds * 1000).toISOString();
+    this.db.prepare('INSERT INTO admin_sessions (token_hash, expires_at) VALUES (?, ?)')
+      .run(tokenHash(token), expiresAt);
+    return { token, expiresAt };
+  }
+
+  adminSessionForToken(token) {
+    if (!token) return null;
+    const session = row(this.db.prepare(`
+      SELECT token_hash AS tokenHash, expires_at AS expiresAt
+      FROM admin_sessions WHERE token_hash = ?
+    `).get(tokenHash(token)));
+    if (!session) return null;
+    if (session.expiresAt <= this.nowIso()) {
+      this.db.prepare('DELETE FROM admin_sessions WHERE token_hash = ?').run(session.tokenHash);
+      return null;
+    }
+    return session;
   }
 
   elevateSession(token, seconds = 60 * 60) {

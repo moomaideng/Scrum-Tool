@@ -1,5 +1,5 @@
 const BASE = '/standup';
-const state = { me: null, dashboard: null, admin: null, config: null };
+const state = { me: null, dashboard: null, admin: null, adminAuthenticated: false, config: null };
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map((element) => [element.id, element]));
 
 function notice(element, message = '') {
@@ -41,6 +41,7 @@ async function initialize() {
     const messages = {
       csrf: 'Google sign-in could not be validated. Please try again.',
       configuration: 'Google sign-in has not been configured yet.',
+      not_allowed: 'Your email has not been invited. Ask the administrator to add it first.',
       google: 'Google sign-in failed. Please try again.',
     };
     notice(elements['login-error'], messages[errorCode] ?? 'Sign-in failed.');
@@ -231,8 +232,9 @@ async function saveStandup(event) {
 
 async function openAdmin() {
   notice(elements['admin-error']);
+  notice(elements['admin-success']);
   elements['admin-dialog'].showModal();
-  if (state.me.isAdmin) await loadAdmin();
+  if (state.adminAuthenticated) await loadAdmin();
   else {
     elements['admin-login'].hidden = false;
     elements['admin-controls'].hidden = true;
@@ -247,7 +249,7 @@ async function unlockAdmin(event) {
   try {
     const data = new FormData(form);
     await api('/api/admin/session', { method: 'POST', body: JSON.stringify({ password: data.get('password') }) });
-    state.me.isAdmin = true;
+    state.adminAuthenticated = true;
     form.reset();
     await loadAdmin();
   } catch (error) {
@@ -262,12 +264,31 @@ async function loadAdmin() {
     elements['admin-controls'].hidden = false;
     renderAdmin();
   } catch (error) {
-    if (error.status === 403) state.me.isAdmin = false;
+    if (error.status === 403) state.adminAuthenticated = false;
     notice(elements['admin-error'], error.message);
   }
 }
 
 function renderAdmin() {
+  elements['allowed-count'].textContent = `${state.admin.allowedEmails.length} allowed`;
+  elements['allowed-emails'].replaceChildren();
+  for (const entry of state.admin.allowedEmails) {
+    const row = document.createElement('div');
+    row.className = 'admin-user';
+    const identity = document.createElement('span');
+    const email = document.createElement('strong');
+    const status = document.createElement('small');
+    const remove = document.createElement('button');
+    email.textContent = entry.email;
+    status.textContent = entry.userId ? `Registered as ${entry.userName}` : 'Waiting for first sign-in';
+    identity.append(email, status);
+    remove.type = 'button';
+    remove.className = 'quiet-button danger-button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => removeAllowedEmail(entry.email, remove));
+    row.append(identity, remove);
+    elements['allowed-emails'].append(row);
+  }
   elements['user-count'].textContent = `${state.admin.users.length} people`;
   elements['admin-users'].replaceChildren();
   for (const user of state.admin.users) {
@@ -290,6 +311,8 @@ function renderAdmin() {
   const sheetLabel = state.admin.sheet.enabled ? 'Google Sheets connected' : 'Google Sheets not configured';
   const emailLabel = state.admin.email.enabled ? 'email connected' : 'email not configured';
   elements['integration-summary'].textContent = `${sheetLabel}; ${emailLabel}.`;
+  elements['reminder-time'].value = state.admin.email.time;
+  elements['send-reminders'].disabled = !state.admin.email.enabled;
   elements['retry-sheets'].disabled = !state.admin.sheet.enabled;
   elements['integration-jobs'].replaceChildren();
   if (!state.admin.sheet.jobs.length) {
@@ -306,6 +329,65 @@ function renderAdmin() {
     const line = document.createElement('p');
     line.textContent = `Email to ${delivery.email} on ${delivery.localDate}: ${delivery.lastError}`;
     elements['integration-jobs'].append(line);
+  }
+}
+
+async function addAllowedEmail(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  notice(elements['admin-error']);
+  notice(elements['admin-success']);
+  try {
+    await api('/api/admin/allowed-emails', { method: 'POST', body: JSON.stringify({ email: data.get('email') }) });
+    form.reset();
+    notice(elements['admin-success'], 'Email added. That person can now sign in with Google.');
+    await loadAdmin();
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+  }
+}
+
+async function removeAllowedEmail(email, button) {
+  if (!window.confirm(`Remove ${email} from the allowed emails? Their active sessions will be signed out.`)) return;
+  button.disabled = true;
+  notice(elements['admin-error']);
+  try {
+    await api(`/api/admin/allowed-emails/${encodeURIComponent(email)}`, { method: 'DELETE', body: '{}' });
+    await loadAdmin();
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+    button.disabled = false;
+  }
+}
+
+async function saveReminderTime(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  notice(elements['admin-error']);
+  try {
+    const result = await api('/api/admin/reminders', { method: 'PATCH', body: JSON.stringify({ time: data.get('time') }) });
+    notice(elements['admin-success'], `Daily reminder time saved as ${result.time} Asia/Bangkok.`);
+    await loadAdmin();
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+  }
+}
+
+async function sendRemindersNow() {
+  const button = elements['send-reminders'];
+  button.disabled = true;
+  notice(elements['admin-error']);
+  notice(elements['admin-success']);
+  try {
+    const result = await api('/api/admin/reminders/send', { method: 'POST', body: '{}' });
+    notice(elements['admin-success'], `Reminder run finished: ${result.sent} sent, ${result.failed} failed.`);
+    await loadAdmin();
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -344,9 +426,13 @@ elements['sprint-select'].addEventListener('change', () => loadDashboard(element
 elements['date-select'].addEventListener('change', () => loadDashboard(elements['sprint-select'].value, elements['date-select'].value));
 elements.logout.addEventListener('click', async () => { await api('/api/logout', { method: 'POST', body: '{}' }); location.assign(`${BASE}/`); });
 elements['admin-open'].addEventListener('click', openAdmin);
+elements['admin-open-login'].addEventListener('click', openAdmin);
 elements['admin-close'].addEventListener('click', () => elements['admin-dialog'].close());
 elements['admin-login'].addEventListener('submit', unlockAdmin);
 elements['sprint-form'].addEventListener('submit', createSprint);
+elements['allowed-email-form'].addEventListener('submit', addAllowedEmail);
+elements['reminder-form'].addEventListener('submit', saveReminderTime);
+elements['send-reminders'].addEventListener('click', sendRemindersNow);
 elements['retry-sheets'].addEventListener('click', async () => {
   try {
     await api('/api/admin/sheets/retry', { method: 'POST', body: '{}' });
