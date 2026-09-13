@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111827" />
+    <title>Sprint 1 Retrospective</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <section id="join-screen" class="join-screen" aria-labelledby="join-title">
+        <p class="eyebrow">Eventory team</p>
+        <h1 id="join-title">Sprint 1 retrospective</h1>
+        <p class="intro">Join with your own name, then add notes to the shared board.</p>
+        <form id="join-form" class="join-form">
+          <label for="name">Your name</label>
+          <input id="name" name="name" autocomplete="name" maxlength="50" required placeholder="e.g. Passakorn" />
+          <p id="join-error" class="form-error" role="alert" hidden></p>
+          <button type="submit">Join retrospective</button>
+        </form>
+      </section>
+
+      <section id="board-screen" class="board-screen" hidden aria-labelledby="board-title">
+        <header class="board-header">
+          <div>
+            <p class="eyebrow">Eventory team · Sprint 1</p>
+            <h1 id="board-title">What should we continue, cancel, and add?</h1>
+          </div>
+          <div class="identity">
+            <span id="member-name"></span>
+            <div class="identity-actions">
+              <button id="change-member" class="text-button" type="button">Change name</button>
+              <button id="reset-board" class="text-button danger" type="button">Reset board</button>
+            </div>
+          </div>
+        </header>
+        <p id="board-error" class="form-error" role="alert" hidden></p>
+        <div id="columns" class="columns"></div>
+      </section>
+    </main>
+    <template id="column-template">
+      <section class="column">
+        <div class="column-heading">
+          <span class="column-icon" aria-hidden="true"></span>
+          <div><h2></h2><p></p></div>
+        </div>
+        <form class="card-form">
+          <label class="sr-only">Add a note</label>
+          <textarea maxlength="500" rows="3" placeholder="Write a note…" required></textarea>
+          <button type="submit">Add note</button>
+        </form>
+        <div class="cards" aria-live="polite"></div>
+      </section>
+    </template>
+    <template id="card-template">
+      <article class="card">
+        <p class="card-content"></p>
+        <footer><span class="card-author"></span><div class="card-actions"></div></footer>
+      </article>
+    </template>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

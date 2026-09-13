@@ -1,0 +1,137 @@
+name: Verify, publish, and deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: scrum-tool-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Docker image
+        run: docker build --tag scrum-tool:verify .
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish ARM64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/moomaideng/scrum-tool:latest
+            ghcr.io/moomaideng/scrum-tool:${{ github.sha }}
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check deployment configuration
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: |
+          test -n "$ORACLE_HOST" || (echo "::error::Missing ORACLE_HOST" && exit 1)
+          test -n "$ORACLE_USER" || (echo "::error::Missing ORACLE_USER" && exit 1)
+          test -n "$ORACLE_SSH_KEY" || (echo "::error::Missing ORACLE_SSH_KEY" && exit 1)
+          test -n "$ORACLE_KNOWN_HOSTS" || (echo "::error::Missing ORACLE_KNOWN_HOSTS" && exit 1)
+
+      - name: Configure SSH
+        env:
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$ORACLE_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Copy production Compose configuration
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh "$ORACLE_USER@$ORACLE_HOST" 'sudo install -d -m 0755 -o "$USER" -g "$(id -gn)" /opt/scrum-tool'
+          scp docker-compose.production.yml "$ORACLE_USER@$ORACLE_HOST:/opt/scrum-tool/docker-compose.yml"
+
+      - name: Write production runtime environment
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          {
+            printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
+            printf 'RETROSPECTIVE_PORT=4173\n'
+          } | ssh "$ORACLE_USER@$ORACLE_HOST" 'umask 077; cat > /opt/scrum-tool/.env'
+
+      - name: Log Oracle in to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh "$ORACLE_USER@$ORACLE_HOST" "sudo docker login ghcr.io --username '$GHCR_USER' --password-stdin"
+
+      - name: Pull and run production image
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh "$ORACLE_USER@$ORACLE_HOST" '
+            set -eu
+            cd /opt/scrum-tool
+            sudo docker compose --env-file .env -f docker-compose.yml pull
+            sudo docker compose --env-file .env -f docker-compose.yml up -d --remove-orphans
+          '
+
+      - name: Verify deployment
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+        run: |
+          curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 "http://$ORACLE_HOST:4173/health"

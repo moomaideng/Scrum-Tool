@@ -1,0 +1,16 @@
+name: scrum-tool-production
+
+services:
+  retrospective:
+    image: ghcr.io/moomaideng/scrum-tool:${IMAGE_TAG:?IMAGE_TAG is required}
+    ports:
+      - "${RETROSPECTIVE_PORT:-4173}:3000"
+    environment:
+      DATA_DIR: /app/data
+      PORT: "3000"
+    volumes:
+      - retrospective-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  retrospective-data:

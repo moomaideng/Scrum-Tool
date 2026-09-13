@@ -1,0 +1,13 @@
+services:
+  retrospective:
+    build: .
+    ports:
+      - "${HOST_PORT:-4173}:3000"
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - retrospective-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  retrospective-data:
