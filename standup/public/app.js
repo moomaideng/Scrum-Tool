@@ -242,12 +242,13 @@ async function openAdmin() {
 
 async function unlockAdmin(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   notice(elements['admin-error']);
   try {
-    const data = new FormData(event.currentTarget);
+    const data = new FormData(form);
     await api('/api/admin/session', { method: 'POST', body: JSON.stringify({ password: data.get('password') }) });
     state.me.isAdmin = true;
-    event.currentTarget.reset();
+    form.reset();
     await loadAdmin();
   } catch (error) {
     notice(elements['admin-error'], error.message);
@@ -325,12 +326,13 @@ async function updateUserReminder(userId, toggle) {
 
 async function createSprint(event) {
   event.preventDefault();
-  const data = new FormData(event.currentTarget);
+  const form = event.currentTarget;
+  const data = new FormData(form);
   const name = String(data.get('name')).trim();
   if (state.dashboard?.sprint && !window.confirm(`Close ${state.dashboard.sprint.name} and start ${name}? Existing entries will be kept.`)) return;
   try {
     await api('/api/admin/sprints', { method: 'POST', body: JSON.stringify({ name }) });
-    event.currentTarget.reset();
+    form.reset();
     await Promise.all([loadAdmin(), loadDashboard()]);
   } catch (error) {
     notice(elements['admin-error'], error.message);
