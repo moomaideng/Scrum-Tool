@@ -217,6 +217,8 @@ export class StandupStore {
           VALUES (?, ?, ?, ?, ?)
         `).run(id, normalized, normalized.split('@')[0], timestamp, timestamp);
         user = { id };
+      } else {
+        this.db.prepare('UPDATE users SET reminders_enabled = 1 WHERE id = ?').run(user.id);
       }
       const activeSprint = this.getActiveSprint();
       if (activeSprint) {
@@ -239,6 +241,12 @@ export class StandupStore {
       if (user) {
         this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
         this.db.prepare('UPDATE users SET reminders_enabled = 0 WHERE id = ?').run(user.id);
+        const activeSprint = this.getActiveSprint();
+        if (activeSprint) {
+          this.db.prepare('DELETE FROM sprint_members WHERE sprint_id = ? AND user_id = ?')
+            .run(activeSprint.id, user.id);
+          this.queueSheetSync(activeSprint.id);
+        }
       }
       return Boolean(this.db.prepare('DELETE FROM allowed_emails WHERE email = ? COLLATE NOCASE').run(email).changes);
     });

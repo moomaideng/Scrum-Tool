@@ -85,6 +85,11 @@ test('admin controls allowed emails and the persisted reminder time', async (t) 
   assert.equal(store.getReminderTime(), '18:45');
   assert.equal(store.removeAllowedEmail('FRIEND@example.com'), true);
   assert.equal(store.isEmailAllowed('friend@example.com'), false);
+  assert.equal(store.dashboard(sprint.id, '2026-09-13', invited.userId).members.length, 0);
+  assert.equal(store.sprintDataset(sprint.id).members.length, 0);
+  store.allowEmail('friend@example.com');
+  assert.equal(store.dashboard(sprint.id, '2026-09-13', invited.userId).members.length, 1);
+  assert.equal(store.reminderCandidates(sprint.id, '2026-09-13').length, 1);
 });
 
 test('existing users are migrated onto the allowlist only once', async (t) => {

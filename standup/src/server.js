@@ -234,6 +234,7 @@ export async function createStandupApplication(options = {}) {
     const email = normalizedEmail(req.params.email);
     if (!email) return res.status(400).json({ message: 'Enter a valid email address.' });
     if (!store.removeAllowedEmail(email)) return res.status(404).json({ message: 'That email is not on the allowlist.' });
+    void scheduler.runOnce();
     res.status(204).end();
   });
 

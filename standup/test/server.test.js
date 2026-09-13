@@ -165,4 +165,11 @@ test('hardcoded admin password can start a new sprint', async (t) => {
   });
   assert.equal(reminderTime.status, 200);
   assert.equal((await reminderTime.json()).time, '19:30');
+
+  const remove = await fetch(`${origin}/standup/api/admin/allowed-emails/${encodeURIComponent('friend@example.com')}`, {
+    method: 'DELETE', headers: { ...headers, Cookie: adminCookie },
+  });
+  assert.equal(remove.status, 204);
+  assert.equal(store.dashboard(store.getActiveSprint().id, '2026-09-13', 'admin').members.length, 0);
+  assert.equal(store.sprintDataset(store.getActiveSprint().id).members.length, 0);
 });
