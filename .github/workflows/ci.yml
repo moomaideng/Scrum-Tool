@@ -23,16 +23,28 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            standup/package-lock.json
 
-      - name: Install dependencies
+      - name: Install retrospective dependencies
         run: npm ci
 
-      - name: Run tests
+      - name: Install standup dependencies
+        working-directory: standup
+        run: npm ci
+
+      - name: Run retrospective tests
         run: npm test
 
-      - name: Build Docker image
-        run: docker build --tag scrum-tool:verify .
+      - name: Run standup tests
+        working-directory: standup
+        run: npm test
+
+      - name: Build Docker images
+        run: |
+          docker build --tag scrum-tool:verify .
+          docker build --tag scrum-standup:verify ./standup
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -59,6 +71,16 @@ jobs:
           tags: |
             ghcr.io/moomaideng/scrum-tool:latest
             ghcr.io/moomaideng/scrum-tool:${{ github.sha }}
+
+      - name: Build and publish standup ARM64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./standup
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/moomaideng/scrum-standup:latest
+            ghcr.io/moomaideng/scrum-standup:${{ github.sha }}
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -103,10 +125,28 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          STANDUP_APP_ORIGIN: ${{ secrets.STANDUP_APP_ORIGIN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.STANDUP_GOOGLE_CLIENT_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.STANDUP_GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 }}
+          GOOGLE_SPREADSHEET_ID: ${{ secrets.STANDUP_GOOGLE_SPREADSHEET_ID }}
+          SMTP_USER: ${{ secrets.STANDUP_SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.STANDUP_SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.STANDUP_SMTP_FROM }}
         run: |
           {
             printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
             printf 'RETROSPECTIVE_PORT=4173\n'
+            printf 'STANDUP_PORT=4174\n'
+            printf 'STANDUP_APP_ORIGIN=%s\n' "$STANDUP_APP_ORIGIN"
+            printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+            printf 'GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=%s\n' "$GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"
+            printf 'GOOGLE_SPREADSHEET_ID=%s\n' "$GOOGLE_SPREADSHEET_ID"
+            printf 'SMTP_HOST=smtp.gmail.com\n'
+            printf 'SMTP_PORT=465\n'
+            printf 'SMTP_SECURE=true\n'
+            printf 'SMTP_USER=%s\n' "$SMTP_USER"
+            printf 'SMTP_PASSWORD=%s\n' "$SMTP_PASSWORD"
+            printf 'SMTP_FROM=%s\n' "$SMTP_FROM"
           } | ssh "$ORACLE_USER@$ORACLE_HOST" 'umask 077; cat > /opt/scrum-tool/.env'
 
       - name: Log Oracle in to GitHub Container Registry
@@ -133,5 +173,7 @@ jobs:
       - name: Verify deployment
         env:
           ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
         run: |
           curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 "http://$ORACLE_HOST:4173/health"
+          ssh "$ORACLE_USER@$ORACLE_HOST" 'curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 http://127.0.0.1:4174/standup/health'

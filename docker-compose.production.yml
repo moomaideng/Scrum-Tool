@@ -12,5 +12,28 @@ services:
       - retrospective-data:/app/data
     restart: unless-stopped
 
+  standup:
+    image: ghcr.io/moomaideng/scrum-standup:${IMAGE_TAG:?IMAGE_TAG is required}
+    ports:
+      - "127.0.0.1:${STANDUP_PORT:-4174}:3000"
+    environment:
+      DATA_DIR: /app/data
+      PORT: "3000"
+      STANDUP_APP_ORIGIN: "${STANDUP_APP_ORIGIN:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: "${GOOGLE_SERVICE_ACCOUNT_JSON_BASE64:-}"
+      GOOGLE_SERVICE_ACCOUNT_FILE: ""
+      GOOGLE_SPREADSHEET_ID: "${GOOGLE_SPREADSHEET_ID:-}"
+      SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"
+      SMTP_PORT: "${SMTP_PORT:-465}"
+      SMTP_SECURE: "${SMTP_SECURE:-true}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+    volumes:
+      - standup-data:/app/data
+    restart: unless-stopped
+
 volumes:
   retrospective-data:
+  standup-data:

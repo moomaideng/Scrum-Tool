@@ -9,5 +9,28 @@ services:
       - retrospective-data:/app/data
     restart: unless-stopped
 
+  standup:
+    build: ./standup
+    ports:
+      - "${STANDUP_HOST_PORT:-4174}:3000"
+    environment:
+      DATA_DIR: /app/data
+      STANDUP_APP_ORIGIN: "${STANDUP_APP_ORIGIN:-http://localhost:4174}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: "${GOOGLE_SERVICE_ACCOUNT_JSON_BASE64:-}"
+      GOOGLE_SERVICE_ACCOUNT_FILE: "${GOOGLE_SERVICE_ACCOUNT_FILE:-}"
+      GOOGLE_SPREADSHEET_ID: "${GOOGLE_SPREADSHEET_ID:-}"
+      SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"
+      SMTP_PORT: "${SMTP_PORT:-465}"
+      SMTP_SECURE: "${SMTP_SECURE:-true}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+    volumes:
+      - standup-data:/app/data
+      - "${GOOGLE_SERVICE_ACCOUNT_HOST_FILE:-/dev/null}:/run/secrets/google-service-account.json:ro"
+    restart: unless-stopped
+
 volumes:
   retrospective-data:
+  standup-data:
