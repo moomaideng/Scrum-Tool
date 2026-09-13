@@ -78,7 +78,7 @@ The application creates one worksheet per sprint. Members are columns; every Ban
 
 The defaults use Gmail SMTP. Enable 2-Step Verification on the sending Google account, create an app password, and set `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. The normal Google account password must not be used. A different SMTP provider can be selected with the remaining SMTP settings.
 
-At and after the administrator-selected Asia/Bangkok time (20:00 by default), the application sends an automatic reminder to each active sprint member who has not submitted that day's standup. The admin can disable reminders per person or trigger the reminder run manually. Each person can receive at most two successful reminders per Bangkok day, and automation contributes at most one of those sends.
+At and after the administrator-selected Asia/Bangkok time (20:00 by default), the application sends an automatic reminder to each active sprint member who has not submitted that day's standup. Each message includes a randomly selected short encouragement and compact ASCII character. The admin can disable reminders per person or trigger the reminder run manually. Each person can receive at most two successful reminders per Bangkok day, and automation contributes at most one of those sends.
 
 ## Deployment notes
 
