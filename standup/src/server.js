@@ -193,6 +193,7 @@ export async function createStandupApplication(options = {}) {
     }
     const result = store.upsertToday(req.standupSession.id, answers);
     if (result.kind === 'no-sprint') return res.status(409).json({ message: 'There is no active sprint yet.' });
+    void scheduler.runOnce();
     res.json(result.submission);
   });
 
@@ -224,7 +225,9 @@ export async function createStandupApplication(options = {}) {
   app.post(`${config.basePath}/api/admin/allowed-emails`, requireSameOrigin, requireAdmin, (req, res) => {
     const email = normalizedEmail(req.body?.email);
     if (!email) return res.status(400).json({ message: 'Enter a valid email address.' });
-    res.status(201).json(store.allowEmail(email));
+    const allowed = store.allowEmail(email);
+    void scheduler.runOnce();
+    res.status(201).json(allowed);
   });
 
   app.delete(`${config.basePath}/api/admin/allowed-emails/:email`, requireSameOrigin, requireAdmin, (req, res) => {

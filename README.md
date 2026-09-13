@@ -58,7 +58,7 @@ Copy the variables from `standup/.env.example` into the root `.env` when using C
 3. Add the exact login URI, such as `https://eventory.ddns.net/standup/auth/google`, to **Authorized redirect URIs**.
 4. Put the client ID in `GOOGLE_CLIENT_ID`. A client secret is not required by this login flow.
 
-Only verified Google emails on the administrator-managed allowlist can sign in. The Google account ID is the stable application identity; email and display name are refreshed on later logins.
+Only verified Google emails on the administrator-managed allowlist can sign in. Adding an email immediately registers that person in the active roster; their name and avatar are refreshed when they first sign in with Google.
 
 ### Administrator
 
@@ -72,13 +72,13 @@ Choose **Admin sign in** on the public login page and enter the password `admin`
 4. Base64-encode the complete JSON key as one line and store it in `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`.
 5. Store the spreadsheet ID from its URL in `GOOGLE_SPREADSHEET_ID`.
 
-The application creates one worksheet per sprint. Members are columns; every Bangkok date occupies three rows labeled **Done**, **To do**, and **Problem**, with the date cell merged vertically. SQLite remains the source of truth and unsuccessful syncs are retried.
+The application creates one worksheet per sprint. Members are columns; every Bangkok date occupies three rows labeled **Done**, **To do**, and **Problem**, with the date cell merged vertically. SQLite remains the source of truth. Sync starts immediately after a submission and unsuccessful syncs are retried.
 
 ### Reminder email
 
 The defaults use Gmail SMTP. Enable 2-Step Verification on the sending Google account, create an app password, and set `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. The normal Google account password must not be used. A different SMTP provider can be selected with the remaining SMTP settings.
 
-At and after the administrator-selected Asia/Bangkok time (20:00 by default), the application sends one reminder to each active sprint member who has not submitted that day's standup. The admin can disable reminders per person or trigger the missing-person reminder run immediately.
+At and after the administrator-selected Asia/Bangkok time (20:00 by default), the application sends an automatic reminder to each active sprint member who has not submitted that day's standup. The admin can disable reminders per person or trigger the reminder run manually. Each person can receive at most two successful reminders per Bangkok day, and automation contributes at most one of those sends.
 
 ## Deployment notes
 

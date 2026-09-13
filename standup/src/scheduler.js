@@ -57,12 +57,13 @@ export class StandupScheduler {
 
   async runReminders(sprint, localDate, { force = false } = {}) {
     const result = { sent: 0, failed: 0 };
-    for (const user of this.store.reminderCandidates(sprint.id, localDate)) {
+    const automatic = !force;
+    for (const user of this.store.reminderCandidates(sprint.id, localDate, { automatic })) {
       if (!force && user.lastAttemptAt && this.now().getTime() - new Date(user.lastAttemptAt).getTime() < 15 * 60 * 1000) continue;
       this.store.startReminder(sprint.id, user.id, localDate);
       try {
         await this.mailer.send({ user, sprint, localDate, applicationUrl: this.applicationUrl });
-        this.store.markReminderSent(sprint.id, user.id, localDate);
+        this.store.markReminderSent(sprint.id, user.id, localDate, { automatic });
         result.sent += 1;
       } catch (error) {
         this.store.markReminderFailed(sprint.id, user.id, localDate, error.message);

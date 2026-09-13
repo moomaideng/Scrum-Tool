@@ -36,6 +36,7 @@ test('users submit once per Bangkok date and can update that entry', async (t) =
 test('switching sprint archives the previous sprint and preserves its entries', async (t) => {
   const { store, setNow } = await fixture(t);
   const user = store.loginGoogleUser(profile('one'));
+  store.allowEmail(user.email);
   const first = store.createSprint('Sprint 1');
   store.upsertToday(user.id, { done: 'A', todo: 'B', problem: '-' });
   setNow('2026-09-14T05:00:00.000Z');
@@ -70,10 +71,15 @@ test('sessions expire and admin elevation has its own expiry', async (t) => {
 
 test('admin controls allowed emails and the persisted reminder time', async (t) => {
   const { store } = await fixture(t);
+  const sprint = store.createSprint('Sprint 1');
   assert.equal(store.isEmailAllowed('friend@example.com'), false);
-  store.allowEmail('Friend@Example.com');
+  const invited = store.allowEmail('Friend@Example.com');
   assert.equal(store.isEmailAllowed('friend@example.com'), true);
   assert.equal(store.listAllowedEmails()[0].email, 'friend@example.com');
+  assert.equal(invited.registered, 0);
+  assert.equal(store.listUsers().length, 1);
+  assert.equal(store.dashboard(sprint.id, '2026-09-13', invited.userId).members.length, 1);
+  assert.equal(store.reminderCandidates(sprint.id, '2026-09-13').length, 1);
   assert.equal(store.getReminderTime(), '20:00');
   assert.equal(store.setReminderTime('18:45'), '18:45');
   assert.equal(store.getReminderTime(), '18:45');
@@ -92,4 +98,16 @@ test('existing users are migrated onto the allowlist only once', async (t) => {
   store.close();
   await store.initialize();
   assert.equal(store.isEmailAllowed(user.email), false);
+});
+
+test('an allowlist entry from an older deployment becomes a pending roster member', async (t) => {
+  const { store } = await fixture(t);
+  const sprint = store.createSprint('Sprint 1');
+  store.db.prepare('INSERT INTO allowed_emails (email, created_at) VALUES (?, ?)')
+    .run('legacy@example.com', store.nowIso());
+  store.close();
+  await store.initialize();
+  const pending = store.listUsers().find((user) => user.email === 'legacy@example.com');
+  assert.equal(pending.registered, 0);
+  assert.equal(store.dashboard(sprint.id, '2026-09-13', pending.id).members.length, 1);
 });

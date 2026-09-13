@@ -280,7 +280,7 @@ function renderAdmin() {
     const status = document.createElement('small');
     const remove = document.createElement('button');
     email.textContent = entry.email;
-    status.textContent = entry.userId ? `Registered as ${entry.userName}` : 'Waiting for first sign-in';
+    status.textContent = entry.registered ? `Signed in as ${entry.userName}` : 'Registered · waiting for Google sign-in';
     identity.append(email, status);
     remove.type = 'button';
     remove.className = 'quiet-button danger-button';
@@ -289,7 +289,7 @@ function renderAdmin() {
     row.append(identity, remove);
     elements['allowed-emails'].append(row);
   }
-  elements['user-count'].textContent = `${state.admin.users.length} people`;
+  elements['user-count'].textContent = `${state.admin.users.length} registered`;
   elements['admin-users'].replaceChildren();
   for (const user of state.admin.users) {
     const label = document.createElement('label');
@@ -298,7 +298,7 @@ function renderAdmin() {
     const name = document.createElement('strong');
     const email = document.createElement('small');
     name.textContent = user.name;
-    email.textContent = user.email;
+    email.textContent = `${user.email}${user.registered ? '' : ' · pending Google sign-in'}`;
     identity.append(name, email);
     const toggle = document.createElement('input');
     toggle.type = 'checkbox';

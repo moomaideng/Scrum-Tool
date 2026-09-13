@@ -13,6 +13,7 @@ test('scheduler emails a missing member once after 20:00 Bangkok time', async (t
   await store.initialize();
   t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
   const user = store.loginGoogleUser({ id: 'one', email: 'one@example.com', name: 'One' });
+  store.allowEmail(user.email);
   store.createSprint('Sprint 1');
   const sent = [];
   const scheduler = new StandupScheduler({
@@ -38,6 +39,7 @@ test('scheduler does not email a member who submitted', async (t) => {
   await store.initialize();
   t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
   const user = store.loginGoogleUser({ id: 'one', email: 'one@example.com', name: 'One' });
+  store.allowEmail(user.email);
   store.createSprint('Sprint 1');
   store.upsertToday(user.id, { done: 'Done', todo: 'Next', problem: '-' });
   let count = 0;
@@ -58,6 +60,7 @@ test('scheduler uses the admin-selected Bangkok reminder time', async (t) => {
   await store.initialize();
   t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
   store.loginGoogleUser({ id: 'one', email: 'one@example.com', name: 'One' });
+  store.allowEmail('one@example.com');
   store.createSprint('Sprint 1');
   store.setReminderTime('18:30');
   let count = 0;
@@ -81,6 +84,7 @@ test('admin can manually send reminders before the scheduled time', async (t) =>
   await store.initialize();
   t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
   store.loginGoogleUser({ id: 'one', email: 'one@example.com', name: 'One' });
+  store.allowEmail('one@example.com');
   store.createSprint('Sprint 1');
   let count = 0;
   const scheduler = new StandupScheduler({
@@ -91,5 +95,9 @@ test('admin can manually send reminders before the scheduled time', async (t) =>
   });
   const result = await scheduler.sendRemindersNow();
   assert.deepEqual(result, { sent: 1, failed: 0, busy: false, noSprint: false });
-  assert.equal(count, 1);
+  const second = await scheduler.sendRemindersNow();
+  const third = await scheduler.sendRemindersNow();
+  assert.equal(second.sent, 1);
+  assert.equal(third.sent, 0);
+  assert.equal(count, 2);
 });

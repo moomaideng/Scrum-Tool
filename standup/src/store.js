@@ -31,6 +31,7 @@ export class StandupStore {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
+        google_subject TEXT UNIQUE,
         email TEXT NOT NULL UNIQUE COLLATE NOCASE,
         name TEXT NOT NULL,
         avatar_url TEXT,
@@ -92,6 +93,8 @@ export class StandupStore {
         attempts INTEGER NOT NULL DEFAULT 0,
         last_attempt_at TEXT,
         sent_at TEXT,
+        sent_count INTEGER NOT NULL DEFAULT 0,
+        automatic_sent INTEGER NOT NULL DEFAULT 0,
         last_error TEXT,
         PRIMARY KEY (sprint_id, user_id, local_date)
       );
@@ -111,6 +114,38 @@ export class StandupStore {
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('allowlist_initialized', 'true');
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('reminder_time', '20:00');
     `);
+    const userColumns = this.db.prepare('PRAGMA table_info(users)').all();
+    if (!userColumns.some((column) => column.name === 'google_subject')) {
+      this.db.exec('ALTER TABLE users ADD COLUMN google_subject TEXT; UPDATE users SET google_subject = id;');
+    }
+    this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_subject ON users(google_subject) WHERE google_subject IS NOT NULL;');
+    const reminderColumns = this.db.prepare('PRAGMA table_info(reminder_deliveries)').all();
+    if (!reminderColumns.some((column) => column.name === 'sent_count')) {
+      this.db.exec(`
+        ALTER TABLE reminder_deliveries ADD COLUMN sent_count INTEGER NOT NULL DEFAULT 0;
+        UPDATE reminder_deliveries SET sent_count = 1 WHERE sent_at IS NOT NULL;
+      `);
+    }
+    if (!reminderColumns.some((column) => column.name === 'automatic_sent')) {
+      this.db.exec('ALTER TABLE reminder_deliveries ADD COLUMN automatic_sent INTEGER NOT NULL DEFAULT 0;');
+    }
+    const pendingInvites = this.db.prepare(`
+      SELECT ae.email, ae.created_at AS createdAt
+      FROM allowed_emails ae LEFT JOIN users u ON u.email = ae.email COLLATE NOCASE
+      WHERE u.id IS NULL
+    `).all();
+    const activeSprint = this.getActiveSprint();
+    for (const invite of pendingInvites) {
+      const id = `invited_${randomBytes(16).toString('hex')}`;
+      this.db.prepare(`
+        INSERT INTO users (id, email, name, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)
+      `).run(id, invite.email, invite.email.split('@')[0], invite.createdAt, invite.createdAt);
+      if (activeSprint) {
+        this.db.prepare('INSERT OR IGNORE INTO sprint_members (sprint_id, user_id, joined_at) VALUES (?, ?, ?)')
+          .run(activeSprint.id, id, this.nowIso());
+      }
+    }
+    if (activeSprint && pendingInvites.length) this.queueSheetSync(activeSprint.id);
   }
 
   close() {
@@ -137,24 +172,30 @@ export class StandupStore {
   loginGoogleUser(profile) {
     const timestamp = this.nowIso();
     return this.transaction(() => {
-      this.db.prepare(`
-        INSERT INTO users (id, email, name, avatar_url, created_at, last_login_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          email = excluded.email,
-          name = excluded.name,
-          avatar_url = excluded.avatar_url,
-          last_login_at = excluded.last_login_at
-      `).run(profile.id, profile.email, profile.name, profile.avatarUrl ?? null, timestamp, timestamp);
+      const existing = this.db.prepare(`
+        SELECT id FROM users WHERE google_subject = ? OR email = ? COLLATE NOCASE
+        ORDER BY google_subject = ? DESC LIMIT 1
+      `).get(profile.id, profile.email, profile.id);
+      const userId = existing?.id ?? profile.id;
+      if (existing) {
+        this.db.prepare(`
+          UPDATE users SET google_subject = ?, email = ?, name = ?, avatar_url = ?, last_login_at = ? WHERE id = ?
+        `).run(profile.id, profile.email, profile.name, profile.avatarUrl ?? null, timestamp, userId);
+      } else {
+        this.db.prepare(`
+          INSERT INTO users (id, google_subject, email, name, avatar_url, created_at, last_login_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(userId, profile.id, profile.email, profile.name, profile.avatarUrl ?? null, timestamp, timestamp);
+      }
 
       const activeSprint = this.getActiveSprint();
       if (activeSprint) {
         this.db.prepare(`
           INSERT OR IGNORE INTO sprint_members (sprint_id, user_id, joined_at) VALUES (?, ?, ?)
-        `).run(activeSprint.id, profile.id, timestamp);
+        `).run(activeSprint.id, userId, timestamp);
         this.queueSheetSync(activeSprint.id);
       }
-      return this.getUser(profile.id);
+      return this.getUser(userId);
     });
   }
 
@@ -163,13 +204,33 @@ export class StandupStore {
   }
 
   allowEmail(email) {
-    this.db.prepare('INSERT OR IGNORE INTO allowed_emails (email, created_at) VALUES (?, ?)')
-      .run(email.toLocaleLowerCase(), this.nowIso());
-    return row(this.db.prepare(`
-      SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName
-      FROM allowed_emails ae LEFT JOIN users u ON u.email = ae.email COLLATE NOCASE
-      WHERE ae.email = ? COLLATE NOCASE
-    `).get(email));
+    const normalized = email.toLocaleLowerCase();
+    const timestamp = this.nowIso();
+    return this.transaction(() => {
+      this.db.prepare('INSERT OR IGNORE INTO allowed_emails (email, created_at) VALUES (?, ?)')
+        .run(normalized, timestamp);
+      let user = this.db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(normalized);
+      if (!user) {
+        const id = `invited_${randomBytes(16).toString('hex')}`;
+        this.db.prepare(`
+          INSERT INTO users (id, email, name, created_at, last_login_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(id, normalized, normalized.split('@')[0], timestamp, timestamp);
+        user = { id };
+      }
+      const activeSprint = this.getActiveSprint();
+      if (activeSprint) {
+        this.db.prepare('INSERT OR IGNORE INTO sprint_members (sprint_id, user_id, joined_at) VALUES (?, ?, ?)')
+          .run(activeSprint.id, user.id, timestamp);
+        this.queueSheetSync(activeSprint.id);
+      }
+      return row(this.db.prepare(`
+        SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName,
+               u.google_subject IS NOT NULL AS registered
+        FROM allowed_emails ae JOIN users u ON u.email = ae.email COLLATE NOCASE
+        WHERE ae.email = ? COLLATE NOCASE
+      `).get(normalized));
+    });
   }
 
   removeAllowedEmail(email) {
@@ -185,7 +246,8 @@ export class StandupStore {
 
   listAllowedEmails() {
     return rows(this.db.prepare(`
-      SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName
+      SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName,
+             u.google_subject IS NOT NULL AS registered
       FROM allowed_emails ae LEFT JOIN users u ON u.email = ae.email COLLATE NOCASE
       ORDER BY ae.email COLLATE NOCASE
     `).all());
@@ -206,16 +268,19 @@ export class StandupStore {
   getUser(id) {
     return row(this.db.prepare(`
       SELECT id, email, name, avatar_url AS avatarUrl,
-             reminders_enabled AS remindersEnabled, created_at AS createdAt, last_login_at AS lastLoginAt
+             reminders_enabled AS remindersEnabled, google_subject IS NOT NULL AS registered,
+             created_at AS createdAt, last_login_at AS lastLoginAt
       FROM users WHERE id = ?
     `).get(id));
   }
 
   listUsers() {
     return rows(this.db.prepare(`
-      SELECT id, email, name, avatar_url AS avatarUrl,
-             reminders_enabled AS remindersEnabled, created_at AS createdAt, last_login_at AS lastLoginAt
-      FROM users ORDER BY name COLLATE NOCASE, email COLLATE NOCASE
+      SELECT users.id, users.email, users.name, users.avatar_url AS avatarUrl,
+             users.reminders_enabled AS remindersEnabled, users.google_subject IS NOT NULL AS registered,
+             users.created_at AS createdAt, users.last_login_at AS lastLoginAt
+      FROM users JOIN allowed_emails ae ON ae.email = users.email COLLATE NOCASE
+      ORDER BY users.name COLLATE NOCASE, users.email COLLATE NOCASE
     `).all());
   }
 
@@ -323,7 +388,9 @@ export class StandupStore {
       const id = Number(result.lastInsertRowid);
       this.db.prepare(`
         INSERT INTO sprint_members (sprint_id, user_id, joined_at)
-        SELECT ?, id, ? FROM users WHERE reminders_enabled = 1
+        SELECT ?, u.id, ? FROM users u
+        JOIN allowed_emails ae ON ae.email = u.email COLLATE NOCASE
+        WHERE u.reminders_enabled = 1
       `).run(id, timestamp);
       this.queueSheetSync(id);
       return this.getSprint(id);
@@ -457,16 +524,19 @@ export class StandupStore {
     `).all());
   }
 
-  reminderCandidates(sprintId, localDate) {
+  reminderCandidates(sprintId, localDate, { automatic = false } = {}) {
     return rows(this.db.prepare(`
       SELECT u.id, u.email, u.name, rd.attempts, rd.last_attempt_at AS lastAttemptAt,
-             rd.sent_at AS sentAt, rd.last_error AS lastError
+             rd.sent_at AS sentAt, COALESCE(rd.sent_count, 0) AS sentCount,
+             COALESCE(rd.automatic_sent, 0) AS automaticSent, rd.last_error AS lastError
       FROM sprint_members sm JOIN users u ON u.id = sm.user_id
       LEFT JOIN submissions s ON s.sprint_id = sm.sprint_id AND s.user_id = sm.user_id AND s.local_date = ?
       LEFT JOIN reminder_deliveries rd ON rd.sprint_id = sm.sprint_id AND rd.user_id = sm.user_id AND rd.local_date = ?
-      WHERE sm.sprint_id = ? AND u.reminders_enabled = 1 AND s.id IS NULL AND rd.sent_at IS NULL
+      WHERE sm.sprint_id = ? AND u.reminders_enabled = 1 AND s.id IS NULL
+        AND COALESCE(rd.sent_count, 0) < 2
+        AND (? = 0 OR COALESCE(rd.automatic_sent, 0) = 0)
       ORDER BY u.email COLLATE NOCASE
-    `).all(localDate, localDate, sprintId));
+    `).all(localDate, localDate, sprintId, automatic ? 1 : 0));
   }
 
   startReminder(sprintId, userId, localDate) {
@@ -479,11 +549,12 @@ export class StandupStore {
     `).run(sprintId, userId, localDate, timestamp);
   }
 
-  markReminderSent(sprintId, userId, localDate) {
+  markReminderSent(sprintId, userId, localDate, { automatic = false } = {}) {
     this.db.prepare(`
-      UPDATE reminder_deliveries SET sent_at = ?, last_error = NULL
+      UPDATE reminder_deliveries SET sent_at = ?, sent_count = sent_count + 1,
+        automatic_sent = CASE WHEN ? = 1 THEN 1 ELSE automatic_sent END, last_error = NULL
       WHERE sprint_id = ? AND user_id = ? AND local_date = ?
-    `).run(this.nowIso(), sprintId, userId, localDate);
+    `).run(this.nowIso(), automatic ? 1 : 0, sprintId, userId, localDate);
   }
 
   markReminderFailed(sprintId, userId, localDate, error) {
@@ -497,7 +568,8 @@ export class StandupStore {
     return rows(this.db.prepare(`
       SELECT rd.sprint_id AS sprintId, s.name AS sprintName, rd.local_date AS localDate,
              rd.user_id AS userId, u.email, rd.attempts, rd.last_attempt_at AS lastAttemptAt,
-             rd.sent_at AS sentAt, rd.last_error AS lastError
+             rd.sent_at AS sentAt, rd.sent_count AS sentCount,
+             rd.automatic_sent AS automaticSent, rd.last_error AS lastError
       FROM reminder_deliveries rd
       JOIN users u ON u.id = rd.user_id JOIN sprints s ON s.id = rd.sprint_id
       ORDER BY rd.local_date DESC, u.email COLLATE NOCASE LIMIT 100
