@@ -145,7 +145,17 @@ export class StandupStore {
           .run(activeSprint.id, id, this.nowIso());
       }
     }
-    if (activeSprint && pendingInvites.length) this.queueSheetSync(activeSprint.id);
+    let removedMemberships = 0;
+    if (activeSprint) {
+      removedMemberships = Number(this.db.prepare(`
+        DELETE FROM sprint_members
+        WHERE sprint_id = ? AND NOT EXISTS (
+          SELECT 1 FROM users u JOIN allowed_emails ae ON ae.email = u.email COLLATE NOCASE
+          WHERE u.id = sprint_members.user_id
+        )
+      `).run(activeSprint.id).changes);
+    }
+    if (activeSprint && (pendingInvites.length || removedMemberships)) this.queueSheetSync(activeSprint.id);
   }
 
   close() {

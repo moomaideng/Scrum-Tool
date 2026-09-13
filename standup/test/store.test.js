@@ -116,3 +116,15 @@ test('an allowlist entry from an older deployment becomes a pending roster membe
   assert.equal(pending.registered, 0);
   assert.equal(store.dashboard(sprint.id, '2026-09-13', pending.id).members.length, 1);
 });
+
+test('startup removes stale active membership left by an older deployment', async (t) => {
+  const { store } = await fixture(t);
+  const invited = store.allowEmail('removed@example.com');
+  const sprint = store.createSprint('Sprint 1');
+  assert.equal(store.dashboard(sprint.id, '2026-09-13', invited.userId).members.length, 1);
+  store.db.prepare('DELETE FROM allowed_emails WHERE email = ?').run('removed@example.com');
+  store.close();
+  await store.initialize();
+  assert.equal(store.dashboard(sprint.id, '2026-09-13', invited.userId).members.length, 0);
+  assert.equal(store.sprintDataset(sprint.id).members.length, 0);
+});
