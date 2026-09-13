@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#17324d" />
+    <title>Eventory Standup</title>
+    <link rel="stylesheet" href="/standup/styles.css" />
+    <script src="https://accounts.google.com/gsi/client" async></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <section id="login-screen" class="login-card" hidden>
+        <div class="brand-mark" aria-hidden="true">E</div>
+        <p class="eyebrow">Eventory team</p>
+        <h1>Daily standup, without the spreadsheet chase.</h1>
+        <p class="lead">Share what you finished, what comes next, and anything blocking you.</p>
+        <p id="login-error" class="notice error" role="alert" hidden></p>
+        <div id="google-signin" class="google-signin"></div>
+        <p class="small-copy">Any Google account can join. Your email is used for standup reminders.</p>
+        <p class="legal-links"><a href="/standup/privacy">Privacy</a><a href="/standup/terms">Terms</a></p>
+      </section>
+
+      <section id="app-screen" hidden>
+        <header class="app-header">
+          <a class="wordmark" href="/standup/" aria-label="Standup home">
+            <span class="brand-mark small" aria-hidden="true">E</span>
+            <span><strong>Standup</strong><small>Eventory team</small></span>
+          </a>
+          <div class="account-area">
+            <button id="admin-open" class="quiet-button" type="button" hidden>Admin</button>
+            <img id="account-avatar" class="avatar" alt="" referrerpolicy="no-referrer" hidden />
+            <span id="account-name"></span>
+            <button id="logout" class="quiet-button" type="button">Sign out</button>
+          </div>
+        </header>
+
+        <section class="hero-panel">
+          <div>
+            <p class="eyebrow">Daily check-in</p>
+            <h1 id="sprint-title">No active sprint</h1>
+            <p id="date-heading" class="date-heading"></p>
+          </div>
+          <div class="history-controls" aria-label="Browse standups">
+            <label for="sprint-select">Sprint</label>
+            <select id="sprint-select"></select>
+            <label for="date-select">Date</label>
+            <input id="date-select" type="date" />
+          </div>
+        </section>
+
+        <p id="app-error" class="notice error" role="alert" hidden></p>
+        <p id="app-success" class="notice success" role="status" hidden></p>
+
+        <section id="empty-sprint" class="empty-state" hidden>
+          <h2>There isn’t an active sprint yet.</h2>
+          <p>The administrator can start one from the Admin panel.</p>
+        </section>
+
+        <div id="dashboard" class="dashboard" hidden>
+          <section class="entry-panel" aria-labelledby="entry-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Your update</p>
+                <h2 id="entry-title">Three quick questions</h2>
+              </div>
+              <span id="entry-state" class="status-pill"></span>
+            </div>
+            <form id="standup-form" class="standup-form">
+              <label for="done"><span class="number done">1</span><span><strong>Done</strong><small>What did you complete?</small></span></label>
+              <textarea id="done" name="done" maxlength="2000" rows="4" required></textarea>
+              <label for="todo"><span class="number todo">2</span><span><strong>To do</strong><small>What will you work on next?</small></span></label>
+              <textarea id="todo" name="todo" maxlength="2000" rows="4" required></textarea>
+              <label for="problem"><span class="number problem">3</span><span><strong>Problem</strong><small>What is blocking you? Use “-” if nothing is.</small></span></label>
+              <textarea id="problem" name="problem" maxlength="2000" rows="4" required></textarea>
+              <div class="form-footer">
+                <span id="edit-note" class="small-copy"></span>
+                <button id="save-standup" type="submit">Save today’s standup</button>
+              </div>
+            </form>
+            <div id="readonly-own" class="readonly-own" hidden></div>
+          </section>
+
+          <section class="team-panel" aria-labelledby="team-title">
+            <div class="section-heading team-heading">
+              <div>
+                <p class="eyebrow">Team pulse</p>
+                <h2 id="team-title">Today’s standups</h2>
+              </div>
+              <span id="completion-count" class="completion-count"></span>
+            </div>
+            <div id="team-list" class="team-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="admin-dialog" class="admin-dialog">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Team controls</p><h2>Standup admin</h2></div>
+        <button id="admin-close" class="icon-button" type="button" aria-label="Close admin panel">×</button>
+      </div>
+      <p id="admin-error" class="notice error" role="alert" hidden></p>
+      <form id="admin-login" class="admin-login">
+        <label for="admin-password">Admin password</label>
+        <input id="admin-password" name="password" type="password" autocomplete="current-password" required />
+        <button type="submit">Unlock admin controls</button>
+      </form>
+      <div id="admin-controls" hidden>
+        <section class="admin-section">
+          <h3>Change sprint</h3>
+          <p>Starting a new sprint archives the current sprint and keeps all previous entries.</p>
+          <form id="sprint-form" class="inline-form">
+            <input id="sprint-name" name="name" maxlength="60" required placeholder="e.g. Sprint 2" />
+            <button type="submit">Start new sprint</button>
+          </form>
+        </section>
+        <section class="admin-section">
+          <div class="admin-section-heading"><div><h3>Registered people</h3><p>Turn off reminders for inactive members.</p></div><span id="user-count"></span></div>
+          <div id="admin-users" class="admin-users"></div>
+        </section>
+        <section class="admin-section">
+          <div class="admin-section-heading">
+            <div><h3>Integrations</h3><p id="integration-summary"></p></div>
+            <button id="retry-sheets" class="secondary-button" type="button">Retry Sheet sync</button>
+          </div>
+          <div id="integration-jobs" class="integration-jobs"></div>
+        </section>
+      </div>
+    </dialog>
+
+    <template id="member-template">
+      <article class="member-card">
+        <header><div class="member-identity"><img class="avatar" alt="" referrerpolicy="no-referrer" hidden /><span class="avatar-fallback"></span><div><h3></h3><p></p></div></div><span class="member-status"></span></header>
+        <div class="member-answers"></div>
+      </article>
+    </template>
+    <script type="module" src="/standup/app.js"></script>
+  </body>
+</html>

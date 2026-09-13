@@ -1,0 +1,21 @@
+{
+  "name": "scrum-standup-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small shared daily Scrum standup tool.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "google-auth-library": "^10.3.0",
+    "googleapis": "^160.0.0",
+    "nodemailer": "^10.0.9"
+  }
+}
