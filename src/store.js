@@ -44,6 +44,7 @@ export class RetrospectiveStore {
   board() {
     return {
       cards: [...this.state.cards].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      participants: [...this.state.participants].sort((a, b) => a.name.localeCompare(b.name)),
     };
   }
 

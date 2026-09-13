@@ -1,7 +1,7 @@
 const columns = [
   { id: 'continue', title: 'What went well?', subtitle: 'Continue', icon: '✓' },
   { id: 'cancel', title: "What didn't go well?", subtitle: 'Cancel', icon: '×' },
-  { id: 'add', title: 'What can we improve next sprint?', subtitle: 'Add', icon: '+' },
+  { id: 'add', title: 'What can we improve?', subtitle: 'Add', icon: '+' },
 ];
 
 const state = { token: localStorage.getItem('retro-token'), participant: null, board: null };
@@ -27,6 +27,16 @@ async function api(url, options = {}) {
 }
 
 function render() {
+  const participantList = document.querySelector('#participant-list');
+  participantList.replaceChildren();
+  document.querySelector('#participant-count').textContent = `${state.board.participants.length} joined`;
+  for (const participant of state.board.participants) {
+    const item = document.createElement('li');
+    item.textContent = participant.name;
+    if (participant.id === state.participant.id) item.classList.add('current-participant');
+    participantList.append(item);
+  }
+
   columnsElement.replaceChildren();
   const columnTemplate = document.querySelector('#column-template');
   const cardTemplate = document.querySelector('#card-template');

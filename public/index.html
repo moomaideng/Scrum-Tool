@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111827" />
-    <title>Sprint 1 Retrospective</title>
+    <title>Scrum Retrospective</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="page-shell">
       <section id="join-screen" class="join-screen" aria-labelledby="join-title">
         <p class="eyebrow">Eventory team</p>
-        <h1 id="join-title">Sprint 1 retrospective</h1>
+        <h1 id="join-title">Scrum retrospective</h1>
         <p class="intro">Join with your own name, then add notes to the shared board.</p>
         <form id="join-form" class="join-form">
           <label for="name">Your name</label>
@@ -24,7 +24,7 @@
       <section id="board-screen" class="board-screen" hidden aria-labelledby="board-title">
         <header class="board-header">
           <div>
-            <p class="eyebrow">Eventory team · Sprint 1</p>
+            <p class="eyebrow">Eventory team</p>
             <h1 id="board-title">What should we continue, cancel, and add?</h1>
           </div>
           <div class="identity">
@@ -35,6 +35,13 @@
             </div>
           </div>
         </header>
+        <section class="participants" aria-labelledby="participants-title">
+          <div>
+            <h2 id="participants-title">Joined members</h2>
+            <p id="participant-count"></p>
+          </div>
+          <ul id="participant-list" class="participant-list"></ul>
+        </section>
         <p id="board-error" class="form-error" role="alert" hidden></p>
         <div id="columns" class="columns"></div>
       </section>

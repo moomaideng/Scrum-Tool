@@ -15,6 +15,7 @@ test('a participant can add, edit, and delete only their own note', async (t) =>
   const card = await store.addCard(first.participant, 'continue', 'We finished the main page.');
 
   assert.equal(store.board().cards.length, 1);
+  assert.deepEqual(store.board().participants.map((participant) => participant.name), ['Other member', 'Passakorn']);
   assert.equal((await store.updateCard(card.id, second.participant, 'Changed')).kind, 'forbidden');
   assert.equal((await store.updateCard(card.id, first.participant, 'We finished the main page.')).kind, 'ok');
   assert.equal(await store.deleteCard(card.id, second.participant), 'forbidden');
