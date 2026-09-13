@@ -133,13 +133,17 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.STANDUP_SMTP_PASSWORD }}
           SMTP_FROM: ${{ secrets.STANDUP_SMTP_FROM }}
         run: |
+          service_account_base64="$GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"
+          case "$service_account_base64" in
+            \{*) service_account_base64=$(printf '%s' "$service_account_base64" | base64 --wrap=0) ;;
+          esac
           {
             printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
             printf 'RETROSPECTIVE_PORT=4173\n'
             printf 'STANDUP_PORT=4174\n'
             printf 'STANDUP_APP_ORIGIN=%s\n' "$STANDUP_APP_ORIGIN"
             printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
-            printf 'GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=%s\n' "$GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"
+            printf 'GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=%s\n' "$service_account_base64"
             printf 'GOOGLE_SPREADSHEET_ID=%s\n' "$GOOGLE_SPREADSHEET_ID"
             printf 'SMTP_HOST=smtp.gmail.com\n'
             printf 'SMTP_PORT=465\n'
