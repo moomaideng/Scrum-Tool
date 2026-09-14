@@ -493,6 +493,22 @@ export class StandupStore {
     `).get(sprintId, userId, localDate));
   }
 
+  upsertAdminSubmission(sprintId, userId, localDate, answers) {
+    const sprint = this.getSprint(sprintId);
+    if (!sprint) return { kind: 'no-sprint' };
+    const member = this.db.prepare('SELECT 1 FROM sprint_members WHERE sprint_id = ? AND user_id = ?').get(sprintId, userId);
+    if (!member) return { kind: 'not-member' };
+    const timestamp = this.nowIso();
+    this.db.prepare(`
+      INSERT INTO submissions (sprint_id, user_id, local_date, done, todo, problem, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(sprint_id, user_id, local_date) DO UPDATE SET
+        done = excluded.done, todo = excluded.todo, problem = excluded.problem, updated_at = excluded.updated_at
+    `).run(sprintId, userId, localDate, answers.done, answers.todo, answers.problem, timestamp, timestamp);
+    this.queueSheetSync(sprintId);
+    return { kind: 'ok', submission: this.getSubmission(sprintId, userId, localDate) };
+  }
+
   dashboard(sprintId, localDate, currentUserId) {
     const sprint = sprintId ? this.getSprint(sprintId) : this.getActiveSprint();
     if (!sprint) return { sprint: null, date: localDate, members: [], submissions: [], ownSubmission: null };
@@ -530,11 +546,13 @@ export class StandupStore {
       FROM submissions WHERE sprint_id = ? ORDER BY local_date, user_id
     `).all(sprintId));
     const finalInstant = sprint.endsAt ?? this.nowIso();
+    const sprintStartDate = isoDateFromInstant(sprint.startsAt);
+    const firstRecordDate = submissions[0]?.localDate;
     return {
       sprint,
       members,
       submissions,
-      startDate: isoDateFromInstant(sprint.startsAt),
+      startDate: firstRecordDate && firstRecordDate < sprintStartDate ? firstRecordDate : sprintStartDate,
       endDate: isoDateFromInstant(finalInstant),
     };
   }

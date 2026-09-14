@@ -152,13 +152,15 @@ test('hardcoded admin password can start a new sprint', async (t) => {
     method: 'POST', headers: { ...headers, Cookie: adminCookie }, body: JSON.stringify({ name: 'Sprint 1' }),
   });
   assert.equal(create.status, 201);
-  assert.equal((await create.json()).name, 'Sprint 1');
+  const createdSprint = await create.json();
+  assert.equal(createdSprint.name, 'Sprint 1');
 
   const allow = await fetch(`${origin}/standup/api/admin/allowed-emails`, {
     method: 'POST', headers: { ...headers, Cookie: adminCookie }, body: JSON.stringify({ email: 'Friend@Example.com' }),
   });
   assert.equal(allow.status, 201);
-  assert.equal((await allow.json()).email, 'friend@example.com');
+  const allowedUser = await allow.json();
+  assert.equal(allowedUser.email, 'friend@example.com');
 
   const reminderTime = await fetch(`${origin}/standup/api/admin/reminders`, {
     method: 'PATCH', headers: { ...headers, Cookie: adminCookie },
@@ -166,6 +168,13 @@ test('hardcoded admin password can start a new sprint', async (t) => {
   });
   assert.equal(reminderTime.status, 200);
   assert.equal((await reminderTime.json()).time, '19:30');
+
+  const historicalRecord = await fetch(`${origin}/standup/api/admin/records`, {
+    method: 'PUT', headers: { ...headers, Cookie: adminCookie },
+    body: JSON.stringify({ sprintId: createdSprint.id, userId: allowedUser.userId, date: '2026-08-25', done: 'Imported', todo: 'Continue', problem: '' }),
+  });
+  assert.equal(historicalRecord.status, 200);
+  assert.equal((await historicalRecord.json()).done, 'Imported');
 
   const remove = await fetch(`${origin}/standup/api/admin/allowed-emails/${encodeURIComponent('friend@example.com')}`, {
     method: 'DELETE', headers: { ...headers, Cookie: adminCookie },

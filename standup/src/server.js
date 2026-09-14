@@ -251,6 +251,33 @@ export async function createStandupApplication(options = {}) {
     res.status(201).json(sprint);
   });
 
+  app.get(`${config.basePath}/api/admin/records`, requireAdmin, (req, res) => {
+    const sprintId = Number(req.query.sprintId);
+    const date = safeDate(req.query.date);
+    if (!Number.isSafeInteger(sprintId) || sprintId < 1 || !date) return res.status(400).json({ message: 'Choose a valid sprint and date.' });
+    const records = store.dashboard(sprintId, date, '');
+    if (!records.sprint) return res.status(404).json({ message: 'That sprint no longer exists.' });
+    res.json(records);
+  });
+
+  app.put(`${config.basePath}/api/admin/records`, requireSameOrigin, requireAdmin, (req, res) => {
+    const sprintId = Number(req.body?.sprintId);
+    const userId = answer(req.body?.userId);
+    const localDate = safeDate(req.body?.date);
+    const answers = { done: answer(req.body?.done), todo: answer(req.body?.todo), problem: answer(req.body?.problem) };
+    if (!Number.isSafeInteger(sprintId) || sprintId < 1 || !userId || !localDate) {
+      return res.status(400).json({ message: 'Choose a valid sprint, member, and date.' });
+    }
+    if (Object.values(answers).some((value) => value.length > 2000)) {
+      return res.status(400).json({ message: 'Each answer can contain at most 2,000 characters.' });
+    }
+    const result = store.upsertAdminSubmission(sprintId, userId, localDate, answers);
+    if (result.kind === 'no-sprint') return res.status(404).json({ message: 'That sprint no longer exists.' });
+    if (result.kind === 'not-member') return res.status(404).json({ message: 'That person is not a member of this sprint.' });
+    void scheduler.runOnce();
+    res.json(result.submission);
+  });
+
   app.patch(`${config.basePath}/api/admin/users/:id`, requireSameOrigin, requireAdmin, (req, res) => {
     const hasReminderSetting = typeof req.body?.remindersEnabled === 'boolean';
     const hasDiscordName = typeof req.body?.discordName === 'string';

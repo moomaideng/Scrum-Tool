@@ -21,6 +21,7 @@ function profile(id, name = id) {
 test('users submit once per Bangkok date and can update that entry', async (t) => {
   const { store } = await fixture(t);
   const user = store.loginGoogleUser(profile('one', 'One'));
+  store.allowEmail(user.email);
   const sprint = store.createSprint('Sprint 1');
   const first = store.upsertToday(user.id, { done: 'Built it', todo: 'Test it', problem: '-' });
   const second = store.upsertToday(user.id, { done: 'Built and reviewed it', todo: 'Test it', problem: '-' });
@@ -102,6 +103,20 @@ test('an admin-set Discord name is kept for reminders and Sheets', async (t) => 
   store.setUserDiscordName(user.id, 'Friend Name');
   assert.equal(store.sprintDataset(sprint.id).members[0].discordName, 'Friend Name');
   assert.equal(store.missingReminderMembers(sprint.id, '2026-09-13')[0].discordName, 'Friend Name');
+});
+
+test('an admin can create a historical submission for a sprint member', async (t) => {
+  const { store } = await fixture(t);
+  const user = store.loginGoogleUser(profile('one', 'One'));
+  store.allowEmail(user.email);
+  const sprint = store.createSprint('Sprint 1');
+  const result = store.upsertAdminSubmission(sprint.id, user.id, '2026-08-25', {
+    done: 'Historical work', todo: 'Follow-up', problem: '',
+  });
+  assert.equal(result.kind, 'ok');
+  assert.equal(store.dashboard(sprint.id, '2026-08-25', user.id).submissions[0].done, 'Historical work');
+  assert.equal(store.sprintDataset(sprint.id).startDate, '2026-08-25');
+  assert.equal(store.sheetSyncStatus()[0].status, 'pending');
 });
 
 test('existing users are migrated onto the allowlist only once', async (t) => {

@@ -131,6 +131,15 @@
           <div id="admin-users" class="admin-users"></div>
         </section>
         <section class="admin-section">
+          <div class="admin-section-heading"><div><h3>Edit standup records</h3><p>Create or revise any member’s Done, To do, and Problem record—including past sprints and dates.</p></div></div>
+          <form id="record-picker-form" class="inline-form">
+            <select id="record-sprint" name="sprintId" required></select>
+            <input id="record-date" name="date" type="date" required />
+            <button type="submit">Load records</button>
+          </form>
+          <div id="admin-records" class="admin-records"></div>
+        </section>
+        <section class="admin-section">
           <div class="admin-section-heading"><div><h3>Daily reminders</h3><p>Time uses Asia/Bangkok. Email and Discord are separate; manual sends only contact people still missing today’s standup.</p></div></div>
           <form id="reminder-form" class="inline-form">
             <input id="reminder-time" name="time" type="time" required />

@@ -1,5 +1,5 @@
 const BASE = '/standup';
-const state = { me: null, dashboard: null, admin: null, adminAuthenticated: false, config: null };
+const state = { me: null, dashboard: null, admin: null, adminRecords: null, adminAuthenticated: false, config: null };
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map((element) => [element.id, element]));
 
 function notice(element, message = '') {
@@ -322,6 +322,18 @@ function renderAdmin() {
     row.append(identity, actions);
     elements['admin-users'].append(row);
   }
+  const selectedRecordSprint = elements['record-sprint'].value;
+  elements['record-sprint'].replaceChildren();
+  for (const sprint of state.admin.sprints) {
+    const option = document.createElement('option');
+    option.value = sprint.id;
+    option.textContent = sprint.name;
+    option.selected = String(sprint.id) === selectedRecordSprint || (!selectedRecordSprint && sprint.id === state.dashboard?.sprint?.id);
+    elements['record-sprint'].append(option);
+  }
+  elements['record-date'].max = state.dashboard?.currentDate ?? bangkokDate();
+  if (!elements['record-date'].value) elements['record-date'].value = state.dashboard?.date ?? bangkokDate();
+  if (state.adminRecords) renderAdminRecords(state.adminRecords);
   const sheetLabel = state.admin.sheet.enabled ? 'Google Sheets connected' : 'Google Sheets not configured';
   const emailLabel = state.admin.email.enabled ? 'email connected' : 'email not configured';
   const discordLabel = state.admin.discord.enabled ? 'Discord connected' : 'Discord not configured';
@@ -353,6 +365,35 @@ function renderAdmin() {
     const line = document.createElement('p');
     line.textContent = `Discord on ${delivery.localDate}: ${delivery.lastError}`;
     elements['integration-jobs'].append(line);
+  }
+}
+
+function renderAdminRecords(records) {
+  const submissions = new Map(records.submissions.map((submission) => [submission.userId, submission]));
+  elements['admin-records'].replaceChildren();
+  if (!records.members.length) {
+    elements['admin-records'].textContent = 'No members were part of this sprint.';
+    return;
+  }
+  for (const member of records.members) {
+    const entry = submissions.get(member.id);
+    const form = document.createElement('form');
+    form.className = 'admin-record';
+    const heading = document.createElement('strong');
+    heading.textContent = member.name;
+    const email = document.createElement('small');
+    email.textContent = member.email;
+    const done = document.createElement('textarea');
+    done.name = 'done'; done.maxLength = 2000; done.rows = 2; done.placeholder = 'Done'; done.value = entry?.done ?? '';
+    const todo = document.createElement('textarea');
+    todo.name = 'todo'; todo.maxLength = 2000; todo.rows = 2; todo.placeholder = 'To do'; todo.value = entry?.todo ?? '';
+    const problem = document.createElement('textarea');
+    problem.name = 'problem'; problem.maxLength = 2000; problem.rows = 2; problem.placeholder = 'Problem'; problem.value = entry?.problem ?? '';
+    const button = document.createElement('button');
+    button.type = 'submit'; button.textContent = entry ? 'Save changes' : 'Create record';
+    form.append(heading, email, done, todo, problem, button);
+    form.addEventListener('submit', (event) => saveAdminRecord(event, records.sprint.id, member.id, records.date));
+    elements['admin-records'].append(form);
   }
 }
 
@@ -388,6 +429,41 @@ async function saveUserDiscordName(userId, input, button) {
   } finally {
     button.disabled = false;
     input.disabled = false;
+  }
+}
+
+async function loadAdminRecords(event) {
+  event.preventDefault();
+  const sprintId = elements['record-sprint'].value;
+  const date = elements['record-date'].value;
+  notice(elements['admin-error']);
+  try {
+    state.adminRecords = await api(`/api/admin/records?sprintId=${encodeURIComponent(sprintId)}&date=${encodeURIComponent(date)}`);
+    renderAdminRecords(state.adminRecords);
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+  }
+}
+
+async function saveAdminRecord(event, sprintId, userId, date) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const data = new FormData(form);
+  button.disabled = true;
+  notice(elements['admin-error']);
+  try {
+    await api('/api/admin/records', {
+      method: 'PUT',
+      body: JSON.stringify({ sprintId, userId, date, done: data.get('done'), todo: data.get('todo'), problem: data.get('problem') }),
+    });
+    notice(elements['admin-success'], 'Standup record saved and Sheet sync queued.');
+    await loadAdminRecords({ preventDefault() {} });
+    await loadDashboard(state.dashboard?.sprint?.id, state.dashboard?.date);
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -500,6 +576,7 @@ elements['allowed-email-form'].addEventListener('submit', addAllowedEmail);
 elements['reminder-form'].addEventListener('submit', saveReminderTime);
 elements['send-reminders'].addEventListener('click', sendRemindersNow);
 elements['send-discord'].addEventListener('click', sendDiscordNow);
+elements['record-picker-form'].addEventListener('submit', loadAdminRecords);
 elements['retry-sheets'].addEventListener('click', async () => {
   try {
     await api('/api/admin/sheets/retry', { method: 'POST', body: '{}' });
