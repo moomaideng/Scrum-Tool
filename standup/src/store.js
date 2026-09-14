@@ -107,12 +107,24 @@ export class StandupStore {
         completed_at TEXT,
         last_error TEXT
       );
+      CREATE TABLE IF NOT EXISTS discord_deliveries (
+        sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+        local_date TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at TEXT,
+        sent_at TEXT,
+        automatic_sent INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        PRIMARY KEY (sprint_id, local_date)
+      );
       INSERT INTO allowed_emails (email, created_at)
         SELECT lower(email), created_at FROM users
         WHERE NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'allowlist_initialized')
         ON CONFLICT(email) DO NOTHING;
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('allowlist_initialized', 'true');
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('reminder_time', '20:00');
+      INSERT OR IGNORE INTO app_settings (key, value) VALUES ('email_daily_enabled', 'true');
+      INSERT OR IGNORE INTO app_settings (key, value) VALUES ('discord_daily_enabled', 'true');
     `);
     const userColumns = this.db.prepare('PRAGMA table_info(users)').all();
     if (!userColumns.some((column) => column.name === 'google_subject')) {
@@ -281,6 +293,26 @@ export class StandupStore {
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(value);
     return this.getReminderTime();
+  }
+
+  getReminderSettings() {
+    const get = (key, fallback) => this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)?.value ?? fallback;
+    return {
+      time: this.getReminderTime(),
+      emailDailyEnabled: get('email_daily_enabled', 'true') === 'true',
+      discordDailyEnabled: get('discord_daily_enabled', 'true') === 'true',
+    };
+  }
+
+  setReminderSettings({ time, emailDailyEnabled, discordDailyEnabled }) {
+    this.transaction(() => {
+      this.setReminderTime(time);
+      for (const [key, enabled] of Object.entries({ email_daily_enabled: emailDailyEnabled, discord_daily_enabled: discordDailyEnabled })) {
+        this.db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+          .run(key, enabled ? 'true' : 'false');
+      }
+    });
+    return this.getReminderSettings();
   }
 
   getUser(id) {
@@ -591,6 +623,63 @@ export class StandupStore {
       FROM reminder_deliveries rd
       JOIN users u ON u.id = rd.user_id JOIN sprints s ON s.id = rd.sprint_id
       ORDER BY rd.local_date DESC, u.email COLLATE NOCASE LIMIT 100
+    `).all());
+  }
+
+  missingReminderMembers(sprintId, localDate) {
+    return rows(this.db.prepare(`
+      SELECT u.id, u.email, u.name
+      FROM sprint_members sm JOIN users u ON u.id = sm.user_id
+      LEFT JOIN submissions s ON s.sprint_id = sm.sprint_id AND s.user_id = sm.user_id AND s.local_date = ?
+      WHERE sm.sprint_id = ? AND u.reminders_enabled = 1 AND s.id IS NULL
+      ORDER BY u.email COLLATE NOCASE
+    `).all(localDate, sprintId));
+  }
+
+  discordDelivery(sprintId, localDate) {
+    return row(this.db.prepare(`
+      SELECT sprint_id AS sprintId, local_date AS localDate, attempts, last_attempt_at AS lastAttemptAt,
+             sent_at AS sentAt, automatic_sent AS automaticSent, last_error AS lastError
+      FROM discord_deliveries WHERE sprint_id = ? AND local_date = ?
+    `).get(sprintId, localDate));
+  }
+
+  startDiscordDelivery(sprintId, localDate) {
+    this.db.prepare(`
+      INSERT INTO discord_deliveries (sprint_id, local_date, attempts, last_attempt_at)
+      VALUES (?, ?, 1, ?)
+      ON CONFLICT(sprint_id, local_date) DO UPDATE SET
+        attempts = attempts + 1, last_attempt_at = excluded.last_attempt_at, last_error = NULL
+    `).run(sprintId, localDate, this.nowIso());
+  }
+
+  markDiscordSent(sprintId, localDate, { automatic = false } = {}) {
+    this.db.prepare(`
+      UPDATE discord_deliveries SET sent_at = ?, automatic_sent = CASE WHEN ? = 1 THEN 1 ELSE automatic_sent END,
+        last_error = NULL WHERE sprint_id = ? AND local_date = ?
+    `).run(this.nowIso(), automatic ? 1 : 0, sprintId, localDate);
+  }
+
+  markDiscordFailed(sprintId, localDate, error) {
+    this.db.prepare('UPDATE discord_deliveries SET last_error = ? WHERE sprint_id = ? AND local_date = ?')
+      .run(String(error).slice(0, 1000), sprintId, localDate);
+  }
+
+  markDiscordAutomaticComplete(sprintId, localDate) {
+    this.db.prepare(`
+      INSERT INTO discord_deliveries (sprint_id, local_date, automatic_sent, sent_at)
+      VALUES (?, ?, 1, ?)
+      ON CONFLICT(sprint_id, local_date) DO UPDATE SET automatic_sent = 1, sent_at = excluded.sent_at
+    `).run(sprintId, localDate, this.nowIso());
+  }
+
+  discordDeliveryStatus() {
+    return rows(this.db.prepare(`
+      SELECT dd.sprint_id AS sprintId, s.name AS sprintName, dd.local_date AS localDate, dd.attempts,
+             dd.last_attempt_at AS lastAttemptAt, dd.sent_at AS sentAt, dd.automatic_sent AS automaticSent,
+             dd.last_error AS lastError
+      FROM discord_deliveries dd JOIN sprints s ON s.id = dd.sprint_id
+      ORDER BY dd.local_date DESC LIMIT 100
     `).all());
   }
 }

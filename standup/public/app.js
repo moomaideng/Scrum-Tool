@@ -310,9 +310,13 @@ function renderAdmin() {
   }
   const sheetLabel = state.admin.sheet.enabled ? 'Google Sheets connected' : 'Google Sheets not configured';
   const emailLabel = state.admin.email.enabled ? 'email connected' : 'email not configured';
-  elements['integration-summary'].textContent = `${sheetLabel}; ${emailLabel}.`;
+  const discordLabel = state.admin.discord.enabled ? 'Discord connected' : 'Discord not configured';
+  elements['integration-summary'].textContent = `${sheetLabel}; ${emailLabel}; ${discordLabel}.`;
   elements['reminder-time'].value = state.admin.email.time;
+  elements['email-daily-enabled'].checked = state.admin.email.emailDailyEnabled;
+  elements['discord-daily-enabled'].checked = state.admin.discord.dailyEnabled;
   elements['send-reminders'].disabled = !state.admin.email.enabled;
+  elements['send-discord'].disabled = !state.admin.discord.enabled;
   elements['retry-sheets'].disabled = !state.admin.sheet.enabled;
   elements['integration-jobs'].replaceChildren();
   if (!state.admin.sheet.jobs.length) {
@@ -328,6 +332,12 @@ function renderAdmin() {
   for (const delivery of failedEmails.slice(0, 5)) {
     const line = document.createElement('p');
     line.textContent = `Email to ${delivery.email} on ${delivery.localDate}: ${delivery.lastError}`;
+    elements['integration-jobs'].append(line);
+  }
+  const failedDiscord = state.admin.discord.deliveries.filter((delivery) => delivery.lastError);
+  for (const delivery of failedDiscord.slice(0, 5)) {
+    const line = document.createElement('p');
+    line.textContent = `Discord on ${delivery.localDate}: ${delivery.lastError}`;
     elements['integration-jobs'].append(line);
   }
 }
@@ -367,8 +377,15 @@ async function saveReminderTime(event) {
   const data = new FormData(form);
   notice(elements['admin-error']);
   try {
-    const result = await api('/api/admin/reminders', { method: 'PATCH', body: JSON.stringify({ time: data.get('time') }) });
-    notice(elements['admin-success'], `Daily reminder time saved as ${result.time} Asia/Bangkok.`);
+    const result = await api('/api/admin/reminders', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        time: data.get('time'),
+        emailDailyEnabled: elements['email-daily-enabled'].checked,
+        discordDailyEnabled: elements['discord-daily-enabled'].checked,
+      }),
+    });
+    notice(elements['admin-success'], `Daily reminder settings saved: ${result.time} Asia/Bangkok.`);
     await loadAdmin();
   } catch (error) {
     notice(elements['admin-error'], error.message);
@@ -382,7 +399,23 @@ async function sendRemindersNow() {
   notice(elements['admin-success']);
   try {
     const result = await api('/api/admin/reminders/send', { method: 'POST', body: '{}' });
-    notice(elements['admin-success'], `Reminder run finished: ${result.sent} sent, ${result.failed} failed.`);
+    notice(elements['admin-success'], `Email reminder run finished: ${result.sent} sent, ${result.failed} failed.`);
+    await loadAdmin();
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function sendDiscordNow() {
+  const button = elements['send-discord'];
+  button.disabled = true;
+  notice(elements['admin-error']);
+  notice(elements['admin-success']);
+  try {
+    const result = await api('/api/admin/discord/send', { method: 'POST', body: '{}' });
+    notice(elements['admin-success'], result.noMissing ? result.message : `Discord reminder posted for ${result.missing} person${result.missing === 1 ? '' : 's'}.`);
     await loadAdmin();
   } catch (error) {
     notice(elements['admin-error'], error.message);
@@ -433,6 +466,7 @@ elements['sprint-form'].addEventListener('submit', createSprint);
 elements['allowed-email-form'].addEventListener('submit', addAllowedEmail);
 elements['reminder-form'].addEventListener('submit', saveReminderTime);
 elements['send-reminders'].addEventListener('click', sendRemindersNow);
+elements['send-discord'].addEventListener('click', sendDiscordNow);
 elements['retry-sheets'].addEventListener('click', async () => {
   try {
     await api('/api/admin/sheets/retry', { method: 'POST', body: '{}' });

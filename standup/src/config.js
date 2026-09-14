@@ -16,6 +16,7 @@ export function readConfig(env = process.env) {
     googleServiceAccountBase64: env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 ?? '',
     googleServiceAccountFile: env.GOOGLE_SERVICE_ACCOUNT_FILE ?? '',
     googleSpreadsheetId: env.GOOGLE_SPREADSHEET_ID ?? '',
+    discordWebhookUrl: env.STANDUP_DISCORD_WEBHOOK_URL ?? '',
     smtp: {
       host: env.SMTP_HOST ?? '',
       port: Number(env.SMTP_PORT ?? 465),

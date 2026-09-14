@@ -130,12 +130,17 @@
           <div id="admin-users" class="admin-users"></div>
         </section>
         <section class="admin-section">
-          <div class="admin-section-heading"><div><h3>Email reminders</h3><p>Time uses Asia/Bangkok. Manual send only contacts people still missing today’s standup.</p></div></div>
+          <div class="admin-section-heading"><div><h3>Daily reminders</h3><p>Time uses Asia/Bangkok. Email and Discord are separate; manual sends only contact people still missing today’s standup.</p></div></div>
           <form id="reminder-form" class="inline-form">
             <input id="reminder-time" name="time" type="time" required />
-            <button type="submit">Save time</button>
+            <label><input id="email-daily-enabled" type="checkbox" /> Enable daily email</label>
+            <label><input id="discord-daily-enabled" type="checkbox" /> Enable daily Discord</label>
+            <button type="submit">Save settings</button>
           </form>
-          <button id="send-reminders" class="secondary-button reminder-action" type="button">Send reminders now</button>
+          <div class="inline-form">
+            <button id="send-reminders" class="secondary-button reminder-action" type="button">Send email now</button>
+            <button id="send-discord" class="secondary-button reminder-action" type="button">Post Discord now</button>
+          </div>
         </section>
         <section class="admin-section">
           <div class="admin-section-heading">

@@ -1,10 +1,11 @@
 import { bangkokNow } from './time.js';
 
 export class StandupScheduler {
-  constructor({ store, sheetSync, mailer, applicationUrl, now = () => new Date(), logger = console }) {
+  constructor({ store, sheetSync, mailer, discordNotifier = { enabled: false }, applicationUrl, now = () => new Date(), logger = console }) {
     this.store = store;
     this.sheetSync = sheetSync;
     this.mailer = mailer;
+    this.discordNotifier = discordNotifier;
     this.applicationUrl = applicationUrl;
     this.now = now;
     this.logger = logger;
@@ -37,7 +38,13 @@ export class StandupScheduler {
       if (this.sheetSync.enabled) await this.runSheetJobs();
       const [hour, minute] = this.store.getReminderTime().split(':').map(Number);
       const reminderTimeReached = local.hour * 60 + local.minute >= hour * 60 + minute;
-      if (sprint && this.mailer.enabled && reminderTimeReached) await this.runReminders(sprint, local.date);
+      const settings = this.store.getReminderSettings();
+      if (sprint && settings.emailDailyEnabled && this.mailer.enabled && reminderTimeReached) {
+        await this.runReminders(sprint, local.date);
+      }
+      if (sprint && settings.discordDailyEnabled && this.discordNotifier.enabled && reminderTimeReached) {
+        await this.runDiscordReminder(sprint, local.date);
+      }
     } finally {
       this.running = false;
     }
@@ -82,6 +89,42 @@ export class StandupScheduler {
       if (!sprint) return { noSprint: true, sent: 0, failed: 0 };
       const result = await this.runReminders(sprint, bangkokNow(this.now()).date, { force: true });
       return { ...result, busy: false, noSprint: false };
+    } finally {
+      this.running = false;
+    }
+  }
+
+  async runDiscordReminder(sprint, localDate, { force = false } = {}) {
+    const automatic = !force;
+    const previous = this.store.discordDelivery(sprint.id, localDate);
+    if (automatic && previous?.automaticSent) return { sent: false, skipped: true };
+    if (automatic && previous?.lastAttemptAt && this.now().getTime() - new Date(previous.lastAttemptAt).getTime() < 15 * 60 * 1000) {
+      return { sent: false, skipped: true };
+    }
+    const users = this.store.missingReminderMembers(sprint.id, localDate);
+    if (!users.length) {
+      if (automatic) this.store.markDiscordAutomaticComplete(sprint.id, localDate);
+      return { sent: false, noMissing: true };
+    }
+    this.store.startDiscordDelivery(sprint.id, localDate);
+    try {
+      await this.discordNotifier.send({ sprint, localDate, users, applicationUrl: this.applicationUrl });
+      this.store.markDiscordSent(sprint.id, localDate, { automatic });
+      return { sent: true, missing: users.length };
+    } catch (error) {
+      this.store.markDiscordFailed(sprint.id, localDate, error.message);
+      this.logger.error('Standup Discord reminder failed', error);
+      return { sent: false, failed: true, missing: users.length };
+    }
+  }
+
+  async sendDiscordReminderNow() {
+    if (this.running) return { busy: true, sent: false };
+    this.running = true;
+    try {
+      const sprint = this.store.getActiveSprint();
+      if (!sprint) return { noSprint: true, sent: false };
+      return { ...await this.runDiscordReminder(sprint, bangkokNow(this.now()).date, { force: true }), busy: false, noSprint: false };
     } finally {
       this.running = false;
     }

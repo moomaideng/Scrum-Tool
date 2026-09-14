@@ -5,7 +5,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { readConfig } from './config.js';
 import { StandupStore } from './store.js';
 import { GoogleSheetSync } from './sheet.js';
-import { ReminderMailer } from './integrations.js';
+import { DiscordNotifier, ReminderMailer } from './integrations.js';
 import { StandupScheduler } from './scheduler.js';
 import { bangkokNow } from './time.js';
 
@@ -60,10 +60,12 @@ export async function createStandupApplication(options = {}) {
     spreadsheetId: config.googleSpreadsheetId,
   }, store);
   const mailer = options.mailer ?? new ReminderMailer(config.smtp);
+  const discordNotifier = options.discordNotifier ?? new DiscordNotifier({ webhookUrl: config.discordWebhookUrl });
   const scheduler = options.scheduler ?? new StandupScheduler({
     store,
     sheetSync,
     mailer,
+    discordNotifier,
     applicationUrl: `${config.appOrigin}${config.basePath}/`,
   });
   const app = express();
@@ -102,7 +104,7 @@ export async function createStandupApplication(options = {}) {
   }
 
   app.get(`${config.basePath}/health`, (req, res) => {
-    res.json({ status: 'ok', sheets: sheetSync.enabled ? 'configured' : 'disabled', email: mailer.enabled ? 'configured' : 'disabled' });
+    res.json({ status: 'ok', sheets: sheetSync.enabled ? 'configured' : 'disabled', email: mailer.enabled ? 'configured' : 'disabled', discord: discordNotifier.enabled ? 'configured' : 'disabled' });
   });
 
   app.get(`${config.basePath}/api/config`, (req, res) => {
@@ -218,7 +220,8 @@ export async function createStandupApplication(options = {}) {
       allowedEmails: store.listAllowedEmails(),
       sprints: store.listSprints(),
       sheet: { enabled: sheetSync.enabled, jobs: store.sheetSyncStatus() },
-      email: { enabled: mailer.enabled, time: store.getReminderTime(), deliveries: store.reminderStatus() },
+      email: { enabled: mailer.enabled, ...store.getReminderSettings(), deliveries: store.reminderStatus() },
+      discord: { enabled: discordNotifier.enabled, dailyEnabled: store.getReminderSettings().discordDailyEnabled, deliveries: store.discordDeliveryStatus() },
     });
   });
 
@@ -258,7 +261,10 @@ export async function createStandupApplication(options = {}) {
     if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
       return res.status(400).json({ message: 'Choose a valid reminder time.' });
     }
-    res.json({ time: store.setReminderTime(time) });
+    if (typeof req.body?.emailDailyEnabled !== 'boolean' || typeof req.body?.discordDailyEnabled !== 'boolean') {
+      return res.status(400).json({ message: 'Choose whether each daily reminder channel is enabled.' });
+    }
+    res.json(store.setReminderSettings({ time, emailDailyEnabled: req.body.emailDailyEnabled, discordDailyEnabled: req.body.discordDailyEnabled }));
   });
 
   app.post(`${config.basePath}/api/admin/reminders/send`, requireSameOrigin, requireAdmin, async (req, res) => {
@@ -266,6 +272,16 @@ export async function createStandupApplication(options = {}) {
     const result = await scheduler.sendRemindersNow();
     if (result.busy) return res.status(409).json({ message: 'Reminder processing is already running.' });
     if (result.noSprint) return res.status(409).json({ message: 'There is no active sprint.' });
+    res.json(result);
+  });
+
+  app.post(`${config.basePath}/api/admin/discord/send`, requireSameOrigin, requireAdmin, async (req, res) => {
+    if (!discordNotifier.enabled) return res.status(409).json({ message: 'Discord is not configured.' });
+    const result = await scheduler.sendDiscordReminderNow();
+    if (result.busy) return res.status(409).json({ message: 'Reminder processing is already running.' });
+    if (result.noSprint) return res.status(409).json({ message: 'There is no active sprint.' });
+    if (result.failed) return res.status(502).json({ message: 'Discord did not accept the reminder. Try again shortly.' });
+    if (result.noMissing) return res.json({ ...result, message: 'Everyone has already submitted today.' });
     res.json(result);
   });
 
@@ -291,7 +307,7 @@ export async function createStandupApplication(options = {}) {
     res.status(500).json({ message: 'Something went wrong. Please try again.' });
   });
 
-  return { app, store, scheduler, config, sheetSync, mailer };
+  return { app, store, scheduler, config, sheetSync, mailer, discordNotifier };
 }
 
 async function main() {

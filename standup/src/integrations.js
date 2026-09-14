@@ -52,6 +52,35 @@ export class ReminderMailer {
   }
 }
 
+export class DiscordNotifier {
+  constructor({ webhookUrl }, { fetch: fetchImplementation = globalThis.fetch, random = Math.random } = {}) {
+    this.webhookUrl = webhookUrl;
+    this.fetch = fetchImplementation;
+    this.random = random;
+    this.enabled = Boolean(webhookUrl && this.fetch);
+  }
+
+  async send({ sprint, localDate, users, applicationUrl }) {
+    if (!this.enabled) throw new Error('Discord is not configured.');
+    const names = users.map((user) => user.name || user.email).join(', ');
+    const line = randomItem(STANDUP_LINES, this.random);
+    const ascii = randomItem(ASCII_FRIENDS, this.random);
+    const content = [
+      `Standup reminder — **${sprint.name}** — ${localDate}`,
+      `Still missing: ${names}`,
+      `Done · To do · Problem — submit here: ${applicationUrl}`,
+      line,
+      `\`\`\`\n${ascii}\n\`\`\``,
+    ].join('\n\n').slice(0, 1_950);
+    const response = await this.fetch(this.webhookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+    });
+    if (!response.ok) throw new Error(`Discord webhook request failed (${response.status}).`);
+  }
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (character) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',

@@ -132,6 +132,7 @@ jobs:
           SMTP_USER: ${{ secrets.STANDUP_SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.STANDUP_SMTP_PASSWORD }}
           SMTP_FROM: ${{ secrets.STANDUP_SMTP_FROM }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.STANDUP_DISCORD_WEBHOOK_URL }}
         run: |
           service_account_base64="$GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"
           case "$service_account_base64" in
@@ -151,6 +152,7 @@ jobs:
             printf 'SMTP_USER=%s\n' "$SMTP_USER"
             printf 'SMTP_PASSWORD=%s\n' "$SMTP_PASSWORD"
             printf 'SMTP_FROM=%s\n' "$SMTP_FROM"
+            printf 'STANDUP_DISCORD_WEBHOOK_URL=%s\n' "$DISCORD_WEBHOOK_URL"
           } | ssh "$ORACLE_USER@$ORACLE_HOST" 'umask 077; cat > /opt/scrum-tool/.env'
 
       - name: Log Oracle in to GitHub Container Registry

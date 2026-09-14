@@ -26,6 +26,7 @@ services:
       SMTP_USER: "${SMTP_USER:-}"
       SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
       SMTP_FROM: "${SMTP_FROM:-}"
+      STANDUP_DISCORD_WEBHOOK_URL: "${STANDUP_DISCORD_WEBHOOK_URL:-}"
     volumes:
       - standup-data:/app/data
       - "${GOOGLE_SERVICE_ACCOUNT_HOST_FILE:-/dev/null}:/run/secrets/google-service-account.json:ro"

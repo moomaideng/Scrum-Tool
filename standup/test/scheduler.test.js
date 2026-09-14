@@ -101,3 +101,25 @@ test('admin can manually send reminders before the scheduled time', async (t) =>
   assert.equal(third.sent, 0);
   assert.equal(count, 2);
 });
+
+test('scheduler posts one Discord reminder after the configured time', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'standup-scheduler-'));
+  const now = new Date('2026-09-13T13:05:00.000Z');
+  const store = new StandupStore(directory, { now: () => now });
+  await store.initialize();
+  t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
+  store.loginGoogleUser({ id: 'one', email: 'one@example.com', name: 'One' });
+  store.allowEmail('one@example.com');
+  store.createSprint('Sprint 1');
+  const sent = [];
+  const scheduler = new StandupScheduler({
+    store, sheetSync: { enabled: false }, mailer: { enabled: false },
+    discordNotifier: { enabled: true, async send(message) { sent.push(message); } },
+    applicationUrl: 'https://example.com/standup/', now: () => now, logger: { error() {} },
+  });
+  await scheduler.runOnce();
+  await scheduler.runOnce();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].users[0].email, 'one@example.com');
+  assert.equal(store.discordDeliveryStatus()[0].automaticSent, 1);
+});
