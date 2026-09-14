@@ -39,11 +39,11 @@ test('Discord reminder posts missing people without allowing mentions', async ()
   });
   await notifier.send({
     sprint: { name: 'Sprint 1' }, localDate: '2026-09-13',
-    users: [{ name: '@One', email: 'one@example.com' }], applicationUrl: 'https://example.com/standup/',
+    users: [{ name: '@One', email: 'one@example.com', discordName: '123456789012345678' }], applicationUrl: 'https://example.com/standup/',
   });
   assert.equal(requests.length, 1);
   const payload = JSON.parse(requests[0].options.body);
-  assert.match(payload.content, /@One/);
+  assert.match(payload.content, /<@123456789012345678>/);
   assert.match(payload.content, /Tiny updates prevent giant surprises\./);
-  assert.deepEqual(payload.allowed_mentions, { parse: [] });
+  assert.deepEqual(payload.allowed_mentions, { parse: [], users: ['123456789012345678'] });
 });

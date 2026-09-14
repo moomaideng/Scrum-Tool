@@ -92,6 +92,18 @@ test('admin controls allowed emails and the persisted reminder time', async (t) 
   assert.equal(store.reminderCandidates(sprint.id, '2026-09-13').length, 1);
 });
 
+test('an admin-set Discord name is kept for reminders and Sheets', async (t) => {
+  const { store } = await fixture(t);
+  const sprint = store.createSprint('Sprint 1');
+  const invited = store.allowEmail('friend@example.com', '123456789012345678');
+  assert.equal(invited.discordName, '123456789012345678');
+  const user = store.listUsers()[0];
+  assert.equal(user.discordName, '123456789012345678');
+  store.setUserDiscordName(user.id, 'Friend Name');
+  assert.equal(store.sprintDataset(sprint.id).members[0].discordName, 'Friend Name');
+  assert.equal(store.missingReminderMembers(sprint.id, '2026-09-13')[0].discordName, 'Friend Name');
+});
+
 test('existing users are migrated onto the allowlist only once', async (t) => {
   const { store } = await fixture(t);
   const user = store.loginGoogleUser(profile('existing'));

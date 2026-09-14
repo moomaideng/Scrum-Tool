@@ -5,7 +5,7 @@ export function buildSheetMatrix(dataset) {
   const values = [];
   const columnCount = Math.max(2 + dataset.members.length, 2);
   values.push([dataset.sprint.name]);
-  values.push(['Date', 'Question', ...dataset.members.map((member) => `${member.name}\n${member.email}`)]);
+  values.push(['Date', 'Question', ...dataset.members.map((member) => [member.name, member.email, member.discordName && `Discord: ${member.discordName}`].filter(Boolean).join('\n'))]);
   const byKey = new Map(dataset.submissions.map((submission) => [
     `${submission.localDate}:${submission.userId}`, submission,
   ]));

@@ -94,6 +94,8 @@ button[type="submit"]:hover { background: #25664f; }
 .admin-user > span { display: grid; }
 .admin-user small { margin-top: 2px; color: #73857b; }
 .admin-user input { width: 19px; height: 19px; accent-color: #2f795f; }
+.admin-user-actions { display: flex; align-items: center; gap: 8px; }
+.admin-user-actions input[type="text"] { width: 180px; height: auto; accent-color: auto; }
 .secondary-button { background: #e2ede8; color: #275f4c; }
 .danger-button { color: #a12b34; }
 .reminder-action { margin-top: 10px; }

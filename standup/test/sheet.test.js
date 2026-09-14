@@ -8,7 +8,7 @@ test('Sheet matrix gives each member a column and each date three merged rows', 
     startDate: '2026-09-13',
     endDate: '2026-09-14',
     members: [
-      { id: 'one', name: 'One', email: 'one@example.com' },
+      { id: 'one', name: 'One', email: 'one@example.com', discordName: '123456789012345678' },
       { id: 'two', name: 'Two', email: 'two@example.com' },
     ],
     submissions: [
@@ -17,7 +17,7 @@ test('Sheet matrix gives each member a column and each date three merged rows', 
   });
 
   assert.deepEqual(matrix.values[0], ['Sprint 1']);
-  assert.deepEqual(matrix.values[1], ['Date', 'Question', 'One\none@example.com', 'Two\ntwo@example.com']);
+  assert.deepEqual(matrix.values[1], ['Date', 'Question', 'One\none@example.com\nDiscord: 123456789012345678', 'Two\ntwo@example.com']);
   assert.deepEqual(matrix.values[2], ['13 Sept 2026', 'Done', 'Built', '']);
   assert.deepEqual(matrix.values[3], ['', 'To do', 'Test', '']);
   assert.deepEqual(matrix.values[4], ['', 'Problem', '-', '']);

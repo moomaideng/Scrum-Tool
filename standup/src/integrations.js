@@ -25,6 +25,13 @@ function randomItem(items, random) {
   return items[Math.floor(random() * items.length)];
 }
 
+function discordMention(user) {
+  const raw = String(user.discordName ?? '').trim();
+  const match = raw.match(/^(?:<@!?(\d{17,20})>|(\d{17,20}))$/);
+  const id = match?.[1] ?? match?.[2];
+  return id ? { text: `<@${id}>`, id } : { text: raw || user.name || user.email, id: null };
+}
+
 export class ReminderMailer {
   constructor(config, { transport, random = Math.random } = {}) {
     this.config = config;
@@ -62,7 +69,8 @@ export class DiscordNotifier {
 
   async send({ sprint, localDate, users, applicationUrl }) {
     if (!this.enabled) throw new Error('Discord is not configured.');
-    const names = users.map((user) => user.name || user.email).join(', ');
+    const mentions = users.map(discordMention);
+    const names = mentions.map((mention) => mention.text).join(', ');
     const line = randomItem(STANDUP_LINES, this.random);
     const ascii = randomItem(ASCII_FRIENDS, this.random);
     const content = [
@@ -75,7 +83,7 @@ export class DiscordNotifier {
     const response = await this.fetch(this.webhookUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+      body: JSON.stringify({ content, allowed_mentions: { parse: [], users: mentions.flatMap((mention) => mention.id ? [mention.id] : []) } }),
     });
     if (!response.ok) throw new Error(`Discord webhook request failed (${response.status}).`);
   }

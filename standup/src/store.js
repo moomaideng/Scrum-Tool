@@ -34,6 +34,7 @@ export class StandupStore {
         google_subject TEXT UNIQUE,
         email TEXT NOT NULL UNIQUE COLLATE NOCASE,
         name TEXT NOT NULL,
+        discord_name TEXT NOT NULL DEFAULT '',
         avatar_url TEXT,
         reminders_enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
@@ -130,6 +131,9 @@ export class StandupStore {
     if (!userColumns.some((column) => column.name === 'google_subject')) {
       this.db.exec('ALTER TABLE users ADD COLUMN google_subject TEXT; UPDATE users SET google_subject = id;');
     }
+    if (!userColumns.some((column) => column.name === 'discord_name')) {
+      this.db.exec("ALTER TABLE users ADD COLUMN discord_name TEXT NOT NULL DEFAULT '';");
+    }
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_subject ON users(google_subject) WHERE google_subject IS NOT NULL;');
     const reminderColumns = this.db.prepare('PRAGMA table_info(reminder_deliveries)').all();
     if (!reminderColumns.some((column) => column.name === 'sent_count')) {
@@ -225,8 +229,9 @@ export class StandupStore {
     return Boolean(this.db.prepare('SELECT 1 FROM allowed_emails WHERE email = ? COLLATE NOCASE').get(email));
   }
 
-  allowEmail(email) {
+  allowEmail(email, discordName = '') {
     const normalized = email.toLocaleLowerCase();
+    const discord = String(discordName).trim().slice(0, 100);
     const timestamp = this.nowIso();
     return this.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO allowed_emails (email, created_at) VALUES (?, ?)')
@@ -235,12 +240,13 @@ export class StandupStore {
       if (!user) {
         const id = `invited_${randomBytes(16).toString('hex')}`;
         this.db.prepare(`
-          INSERT INTO users (id, email, name, created_at, last_login_at)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(id, normalized, normalized.split('@')[0], timestamp, timestamp);
+          INSERT INTO users (id, email, name, discord_name, created_at, last_login_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(id, normalized, normalized.split('@')[0], discord, timestamp, timestamp);
         user = { id };
       } else {
-        this.db.prepare('UPDATE users SET reminders_enabled = 1 WHERE id = ?').run(user.id);
+        this.db.prepare('UPDATE users SET reminders_enabled = 1, discord_name = CASE WHEN ? != \'\' THEN ? ELSE discord_name END WHERE id = ?')
+          .run(discord, discord, user.id);
       }
       const activeSprint = this.getActiveSprint();
       if (activeSprint) {
@@ -249,7 +255,7 @@ export class StandupStore {
         this.queueSheetSync(activeSprint.id);
       }
       return row(this.db.prepare(`
-        SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName,
+        SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName, u.discord_name AS discordName,
                u.google_subject IS NOT NULL AS registered
         FROM allowed_emails ae JOIN users u ON u.email = ae.email COLLATE NOCASE
         WHERE ae.email = ? COLLATE NOCASE
@@ -276,7 +282,7 @@ export class StandupStore {
 
   listAllowedEmails() {
     return rows(this.db.prepare(`
-      SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName,
+      SELECT ae.email, ae.created_at AS createdAt, u.id AS userId, u.name AS userName, u.discord_name AS discordName,
              u.google_subject IS NOT NULL AS registered
       FROM allowed_emails ae LEFT JOIN users u ON u.email = ae.email COLLATE NOCASE
       ORDER BY ae.email COLLATE NOCASE
@@ -317,7 +323,7 @@ export class StandupStore {
 
   getUser(id) {
     return row(this.db.prepare(`
-      SELECT id, email, name, avatar_url AS avatarUrl,
+      SELECT id, email, name, discord_name AS discordName, avatar_url AS avatarUrl,
              reminders_enabled AS remindersEnabled, google_subject IS NOT NULL AS registered,
              created_at AS createdAt, last_login_at AS lastLoginAt
       FROM users WHERE id = ?
@@ -326,7 +332,7 @@ export class StandupStore {
 
   listUsers() {
     return rows(this.db.prepare(`
-      SELECT users.id, users.email, users.name, users.avatar_url AS avatarUrl,
+      SELECT users.id, users.email, users.name, users.discord_name AS discordName, users.avatar_url AS avatarUrl,
              users.reminders_enabled AS remindersEnabled, users.google_subject IS NOT NULL AS registered,
              users.created_at AS createdAt, users.last_login_at AS lastLoginAt
       FROM users JOIN allowed_emails ae ON ae.email = users.email COLLATE NOCASE
@@ -345,6 +351,15 @@ export class StandupStore {
         this.queueSheetSync(active.id);
       }
     }
+    return this.getUser(id);
+  }
+
+  setUserDiscordName(id, value) {
+    const discordName = String(value).trim().slice(0, 100);
+    const result = this.db.prepare('UPDATE users SET discord_name = ? WHERE id = ?').run(discordName, id);
+    if (!result.changes) return null;
+    const active = this.getActiveSprint();
+    if (active) this.queueSheetSync(active.id);
     return this.getUser(id);
   }
 
@@ -506,7 +521,7 @@ export class StandupStore {
     const sprint = this.getSprint(sprintId);
     if (!sprint) return null;
     const members = rows(this.db.prepare(`
-      SELECT u.id, u.email, u.name
+      SELECT u.id, u.email, u.name, u.discord_name AS discordName
       FROM sprint_members sm JOIN users u ON u.id = sm.user_id
       WHERE sm.sprint_id = ? ORDER BY sm.joined_at, u.email COLLATE NOCASE
     `).all(sprintId));
@@ -628,7 +643,7 @@ export class StandupStore {
 
   missingReminderMembers(sprintId, localDate) {
     return rows(this.db.prepare(`
-      SELECT u.id, u.email, u.name
+      SELECT u.id, u.email, u.name, u.discord_name AS discordName
       FROM sprint_members sm JOIN users u ON u.id = sm.user_id
       LEFT JOIN submissions s ON s.sprint_id = sm.sprint_id AND s.user_id = sm.user_id AND s.local_date = ?
       WHERE sm.sprint_id = ? AND u.reminders_enabled = 1 AND s.id IS NULL

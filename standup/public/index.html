@@ -118,15 +118,16 @@
           </form>
         </section>
         <section class="admin-section">
-          <div class="admin-section-heading"><div><h3>Allowed emails</h3><p>Add an email before that person signs in with Google.</p></div><span id="allowed-count"></span></div>
+          <div class="admin-section-heading"><div><h3>Allowed emails</h3><p>Add an email before that person signs in with Google. For a real Discord tag, paste their Discord User ID.</p></div><span id="allowed-count"></span></div>
           <form id="allowed-email-form" class="inline-form">
             <input id="allowed-email" name="email" type="email" maxlength="254" required placeholder="friend@example.com" />
+            <input id="allowed-discord-name" name="discordName" maxlength="100" placeholder="Discord User ID or name" />
             <button type="submit">Add email</button>
           </form>
           <div id="allowed-emails" class="admin-users"></div>
         </section>
         <section class="admin-section">
-          <div class="admin-section-heading"><div><h3>Registered people</h3><p>Turn off reminders for inactive members.</p></div><span id="user-count"></span></div>
+          <div class="admin-section-heading"><div><h3>Registered people</h3><p>Set each person’s Discord User ID/name and turn off reminders for inactive members.</p></div><span id="user-count"></span></div>
           <div id="admin-users" class="admin-users"></div>
         </section>
         <section class="admin-section">

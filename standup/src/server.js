@@ -228,7 +228,9 @@ export async function createStandupApplication(options = {}) {
   app.post(`${config.basePath}/api/admin/allowed-emails`, requireSameOrigin, requireAdmin, (req, res) => {
     const email = normalizedEmail(req.body?.email);
     if (!email) return res.status(400).json({ message: 'Enter a valid email address.' });
-    const allowed = store.allowEmail(email);
+    const discordName = answer(req.body?.discordName);
+    if (discordName.length > 100) return res.status(400).json({ message: 'Discord name must be no more than 100 characters.' });
+    const allowed = store.allowEmail(email, discordName);
     void scheduler.runOnce();
     res.status(201).json(allowed);
   });
@@ -250,8 +252,12 @@ export async function createStandupApplication(options = {}) {
   });
 
   app.patch(`${config.basePath}/api/admin/users/:id`, requireSameOrigin, requireAdmin, (req, res) => {
-    if (typeof req.body?.remindersEnabled !== 'boolean') return res.status(400).json({ message: 'Choose whether reminders are enabled.' });
-    const user = store.setUserReminders(req.params.id, req.body.remindersEnabled);
+    const hasReminderSetting = typeof req.body?.remindersEnabled === 'boolean';
+    const hasDiscordName = typeof req.body?.discordName === 'string';
+    if (!hasReminderSetting && !hasDiscordName) return res.status(400).json({ message: 'Choose a reminder setting or Discord name.' });
+    if (hasDiscordName && answer(req.body.discordName).length > 100) return res.status(400).json({ message: 'Discord name must be no more than 100 characters.' });
+    let user = hasDiscordName ? store.setUserDiscordName(req.params.id, req.body.discordName) : store.getUser(req.params.id);
+    if (user && hasReminderSetting) user = store.setUserReminders(req.params.id, req.body.remindersEnabled);
     if (!user) return res.status(404).json({ message: 'That user no longer exists.' });
     res.json({ ...user, remindersEnabled: Boolean(user.remindersEnabled) });
   });

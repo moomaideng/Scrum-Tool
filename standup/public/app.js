@@ -292,21 +292,35 @@ function renderAdmin() {
   elements['user-count'].textContent = `${state.admin.users.length} registered`;
   elements['admin-users'].replaceChildren();
   for (const user of state.admin.users) {
-    const label = document.createElement('label');
-    label.className = 'admin-user';
+    const row = document.createElement('div');
+    row.className = 'admin-user';
     const identity = document.createElement('span');
     const name = document.createElement('strong');
     const email = document.createElement('small');
     name.textContent = user.name;
     email.textContent = `${user.email}${user.registered ? '' : ' · pending Google sign-in'}`;
     identity.append(name, email);
+    const actions = document.createElement('div');
+    actions.className = 'admin-user-actions';
+    const discordName = document.createElement('input');
+    discordName.type = 'text';
+    discordName.maxLength = 100;
+    discordName.placeholder = 'Discord User ID or name';
+    discordName.value = user.discordName || '';
+    discordName.setAttribute('aria-label', `Discord User ID or name for ${user.name}`);
+    const saveDiscord = document.createElement('button');
+    saveDiscord.type = 'button';
+    saveDiscord.className = 'quiet-button';
+    saveDiscord.textContent = 'Save Discord';
+    saveDiscord.addEventListener('click', () => saveUserDiscordName(user.id, discordName, saveDiscord));
     const toggle = document.createElement('input');
     toggle.type = 'checkbox';
     toggle.checked = user.remindersEnabled;
     toggle.setAttribute('aria-label', `Send reminders to ${user.name}`);
     toggle.addEventListener('change', () => updateUserReminder(user.id, toggle));
-    label.append(identity, toggle);
-    elements['admin-users'].append(label);
+    actions.append(discordName, saveDiscord, toggle);
+    row.append(identity, actions);
+    elements['admin-users'].append(row);
   }
   const sheetLabel = state.admin.sheet.enabled ? 'Google Sheets connected' : 'Google Sheets not configured';
   const emailLabel = state.admin.email.enabled ? 'email connected' : 'email not configured';
@@ -349,12 +363,31 @@ async function addAllowedEmail(event) {
   notice(elements['admin-error']);
   notice(elements['admin-success']);
   try {
-    await api('/api/admin/allowed-emails', { method: 'POST', body: JSON.stringify({ email: data.get('email') }) });
+    await api('/api/admin/allowed-emails', {
+      method: 'POST', body: JSON.stringify({ email: data.get('email'), discordName: data.get('discordName') }),
+    });
     form.reset();
     notice(elements['admin-success'], 'Email added. That person can now sign in with Google.');
     await loadAdmin();
   } catch (error) {
     notice(elements['admin-error'], error.message);
+  }
+}
+
+async function saveUserDiscordName(userId, input, button) {
+  button.disabled = true;
+  input.disabled = true;
+  try {
+    await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH', body: JSON.stringify({ discordName: input.value }),
+    });
+    notice(elements['admin-success'], 'Discord name saved and Sheet sync queued.');
+    await loadAdmin();
+  } catch (error) {
+    notice(elements['admin-error'], error.message);
+  } finally {
+    button.disabled = false;
+    input.disabled = false;
   }
 }
 
