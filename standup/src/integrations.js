@@ -32,6 +32,24 @@ function discordMention(user) {
   return id ? { text: `<@${id}>`, id } : { text: raw || user.name || user.email, id: null };
 }
 
+function reminderLabel(kind) {
+  if (kind === 'first') return 'First standup reminder';
+  if (kind === 'second') return 'Second standup reminder';
+  return 'Manual standup reminder';
+}
+
+function reminderIntro(kind) {
+  if (kind === 'first') return 'A quick first check-in: your standup has not been submitted yet.';
+  if (kind === 'second') return 'Second reminder for today: your standup is still waiting.';
+  return 'An administrator asked for a standup reminder: your update is still waiting.';
+}
+
+function responseSummary(responseRate) {
+  if (!responseRate) return '';
+  const change = responseRate.change > 0 ? `+${responseRate.change}` : String(responseRate.change);
+  return `Team response: ${responseRate.submitted}/${responseRate.total} (${responseRate.percent}%) [${change} pts vs yesterday]`;
+}
+
 export class ReminderMailer {
   constructor(config, { transport, random = Math.random } = {}) {
     this.config = config;
@@ -45,16 +63,19 @@ export class ReminderMailer {
     }) : null);
   }
 
-  async send({ user, sprint, localDate, applicationUrl }) {
+  async send({ user, sprint, localDate, applicationUrl, reminderKind = 'manual', responseRate }) {
     if (!this.enabled) throw new Error('Reminder email is not configured.');
     const line = randomItem(STANDUP_LINES, this.random);
     const ascii = randomItem(ASCII_FRIENDS, this.random);
+    const label = reminderLabel(reminderKind);
+    const intro = reminderIntro(reminderKind);
+    const response = responseSummary(responseRate);
     await this.transport.sendMail({
       from: this.config.from,
       to: user.email,
-      subject: `Standup reminder — ${sprint.name} — ${localDate}`,
-      text: `Hi ${user.name},\n\nYour standup for ${localDate} has not been submitted yet.\n\nAdd it here: ${applicationUrl}\n\nDone · To do · Problem\n\n${line}\n\n${ascii}`,
-      html: `<p>Hi ${escapeHtml(user.name)},</p><p>Your standup for <strong>${escapeHtml(localDate)}</strong> has not been submitted yet.</p><p><a href="${escapeHtml(applicationUrl)}">Add your standup</a></p><p>Done · To do · Problem</p><div style="margin-top:24px;padding:16px;border-radius:12px;background:#f3f7f5;color:#17324d"><p style="margin:0 0 12px;font-weight:700">${escapeHtml(line)}</p><pre style="margin:0;font:14px/1.25 monospace;white-space:pre-wrap">${escapeHtml(ascii)}</pre></div>`,
+      subject: `${label} — ${sprint.name} — ${localDate}`,
+      text: `Hi ${user.name},\n\n${intro}\n\n${response}\n\nAdd it here: ${applicationUrl}\n\nDone · To do · Problem\n\n${line}\n\n${ascii}`,
+      html: `<p>Hi ${escapeHtml(user.name)},</p><p>${escapeHtml(intro)}</p><p><strong>${escapeHtml(response)}</strong></p><p><a href="${escapeHtml(applicationUrl)}">Add your standup</a></p><p>Done · To do · Problem</p><div style="margin-top:24px;padding:16px;border-radius:12px;background:#f3f7f5;color:#17324d"><p style="margin:0 0 12px;font-weight:700">${escapeHtml(line)}</p><pre style="margin:0;font:14px/1.25 monospace;white-space:pre-wrap">${escapeHtml(ascii)}</pre></div>`,
     });
   }
 }
@@ -67,15 +88,16 @@ export class DiscordNotifier {
     this.enabled = Boolean(webhookUrl && this.fetch);
   }
 
-  async send({ sprint, localDate, users, applicationUrl }) {
+  async send({ sprint, localDate, users, applicationUrl, reminderKind = 'manual', responseRate }) {
     if (!this.enabled) throw new Error('Discord is not configured.');
     const mentions = users.map(discordMention);
     const names = mentions.map((mention) => mention.text).join(', ');
     const line = randomItem(STANDUP_LINES, this.random);
     const ascii = randomItem(ASCII_FRIENDS, this.random);
     const content = [
-      `Standup reminder — **${sprint.name}** — ${localDate}`,
+      `${reminderLabel(reminderKind)} — **${sprint.name}** — ${localDate}`,
       `Still missing: ${names}`,
+      responseSummary(responseRate),
       `Done · To do · Problem — submit here: ${applicationUrl}`,
       line,
       `\`\`\`\n${ascii}\n\`\`\``,

@@ -338,6 +338,7 @@ function renderAdmin() {
   const emailLabel = state.admin.email.enabled ? 'email connected' : 'email not configured';
   const discordLabel = state.admin.discord.enabled ? 'Discord connected' : 'Discord not configured';
   elements['integration-summary'].textContent = `${sheetLabel}; ${emailLabel}; ${discordLabel}.`;
+  elements['first-reminder-time'].value = state.admin.email.firstTime;
   elements['reminder-time'].value = state.admin.email.time;
   elements['email-daily-enabled'].checked = state.admin.email.emailDailyEnabled;
   elements['discord-daily-enabled'].checked = state.admin.discord.dailyEnabled;
@@ -489,12 +490,13 @@ async function saveReminderTime(event) {
     const result = await api('/api/admin/reminders', {
       method: 'PATCH',
       body: JSON.stringify({
+        firstTime: data.get('firstTime'),
         time: data.get('time'),
         emailDailyEnabled: elements['email-daily-enabled'].checked,
         discordDailyEnabled: elements['discord-daily-enabled'].checked,
       }),
     });
-    notice(elements['admin-success'], `Daily reminder settings saved: ${result.time} Asia/Bangkok.`);
+    notice(elements['admin-success'], `Daily reminders saved: first ${result.firstTime}, second ${result.time} Asia/Bangkok.`);
     await loadAdmin();
   } catch (error) {
     notice(elements['admin-error'], error.message);

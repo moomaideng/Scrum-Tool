@@ -124,6 +124,7 @@ export class StandupStore {
         ON CONFLICT(email) DO NOTHING;
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('allowlist_initialized', 'true');
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('reminder_time', '20:00');
+      INSERT OR IGNORE INTO app_settings (key, value) VALUES ('first_reminder_time', '10:00');
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('email_daily_enabled', 'true');
       INSERT OR IGNORE INTO app_settings (key, value) VALUES ('discord_daily_enabled', 'true');
     `);
@@ -144,6 +145,21 @@ export class StandupStore {
     }
     if (!reminderColumns.some((column) => column.name === 'automatic_sent')) {
       this.db.exec('ALTER TABLE reminder_deliveries ADD COLUMN automatic_sent INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!reminderColumns.some((column) => column.name === 'automatic_first_sent')) {
+      this.db.exec('ALTER TABLE reminder_deliveries ADD COLUMN automatic_first_sent INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!reminderColumns.some((column) => column.name === 'automatic_second_sent')) {
+      this.db.exec('ALTER TABLE reminder_deliveries ADD COLUMN automatic_second_sent INTEGER NOT NULL DEFAULT 0;');
+      this.db.exec('UPDATE reminder_deliveries SET automatic_second_sent = automatic_sent WHERE automatic_sent = 1;');
+    }
+    const discordColumns = this.db.prepare('PRAGMA table_info(discord_deliveries)').all();
+    if (!discordColumns.some((column) => column.name === 'automatic_first_sent')) {
+      this.db.exec('ALTER TABLE discord_deliveries ADD COLUMN automatic_first_sent INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!discordColumns.some((column) => column.name === 'automatic_second_sent')) {
+      this.db.exec('ALTER TABLE discord_deliveries ADD COLUMN automatic_second_sent INTEGER NOT NULL DEFAULT 0;');
+      this.db.exec('UPDATE discord_deliveries SET automatic_second_sent = automatic_sent WHERE automatic_sent = 1;');
     }
     const pendingInvites = this.db.prepare(`
       SELECT ae.email, ae.created_at AS createdAt
@@ -304,14 +320,19 @@ export class StandupStore {
   getReminderSettings() {
     const get = (key, fallback) => this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)?.value ?? fallback;
     return {
+      firstTime: get('first_reminder_time', '10:00'),
       time: this.getReminderTime(),
       emailDailyEnabled: get('email_daily_enabled', 'true') === 'true',
       discordDailyEnabled: get('discord_daily_enabled', 'true') === 'true',
     };
   }
 
-  setReminderSettings({ time, emailDailyEnabled, discordDailyEnabled }) {
+  setReminderSettings({ firstTime, time, emailDailyEnabled, discordDailyEnabled }) {
     this.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO app_settings (key, value) VALUES ('first_reminder_time', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(firstTime);
       this.setReminderTime(time);
       for (const [key, enabled] of Object.entries({ email_daily_enabled: emailDailyEnabled, discord_daily_enabled: discordDailyEnabled })) {
         this.db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
@@ -607,19 +628,21 @@ export class StandupStore {
     `).all());
   }
 
-  reminderCandidates(sprintId, localDate, { automatic = false } = {}) {
+  reminderCandidates(sprintId, localDate, { automaticPhase = null } = {}) {
     return rows(this.db.prepare(`
       SELECT u.id, u.email, u.name, rd.attempts, rd.last_attempt_at AS lastAttemptAt,
              rd.sent_at AS sentAt, COALESCE(rd.sent_count, 0) AS sentCount,
-             COALESCE(rd.automatic_sent, 0) AS automaticSent, rd.last_error AS lastError
+             COALESCE(rd.automatic_first_sent, 0) AS automaticFirstSent,
+             COALESCE(rd.automatic_second_sent, 0) AS automaticSecondSent, rd.last_error AS lastError
       FROM sprint_members sm JOIN users u ON u.id = sm.user_id
       LEFT JOIN submissions s ON s.sprint_id = sm.sprint_id AND s.user_id = sm.user_id AND s.local_date = ?
       LEFT JOIN reminder_deliveries rd ON rd.sprint_id = sm.sprint_id AND rd.user_id = sm.user_id AND rd.local_date = ?
       WHERE sm.sprint_id = ? AND u.reminders_enabled = 1 AND s.id IS NULL
         AND COALESCE(rd.sent_count, 0) < 2
-        AND (? = 0 OR COALESCE(rd.automatic_sent, 0) = 0)
+        AND (? IS NULL OR (? = 'first' AND COALESCE(rd.automatic_first_sent, 0) = 0)
+          OR (? = 'second' AND COALESCE(rd.automatic_second_sent, 0) = 0))
       ORDER BY u.email COLLATE NOCASE
-    `).all(localDate, localDate, sprintId, automatic ? 1 : 0));
+    `).all(localDate, localDate, sprintId, automaticPhase, automaticPhase, automaticPhase));
   }
 
   startReminder(sprintId, userId, localDate) {
@@ -632,12 +655,14 @@ export class StandupStore {
     `).run(sprintId, userId, localDate, timestamp);
   }
 
-  markReminderSent(sprintId, userId, localDate, { automatic = false } = {}) {
+  markReminderSent(sprintId, userId, localDate, { automaticPhase = null } = {}) {
     this.db.prepare(`
       UPDATE reminder_deliveries SET sent_at = ?, sent_count = sent_count + 1,
-        automatic_sent = CASE WHEN ? = 1 THEN 1 ELSE automatic_sent END, last_error = NULL
+        automatic_first_sent = CASE WHEN ? = 'first' THEN 1 ELSE automatic_first_sent END,
+        automatic_second_sent = CASE WHEN ? = 'second' THEN 1 ELSE automatic_second_sent END,
+        automatic_sent = CASE WHEN ? IS NOT NULL THEN 1 ELSE automatic_sent END, last_error = NULL
       WHERE sprint_id = ? AND user_id = ? AND local_date = ?
-    `).run(this.nowIso(), automatic ? 1 : 0, sprintId, userId, localDate);
+    `).run(this.nowIso(), automaticPhase, automaticPhase, automaticPhase, sprintId, userId, localDate);
   }
 
   markReminderFailed(sprintId, userId, localDate, error) {
@@ -652,7 +677,8 @@ export class StandupStore {
       SELECT rd.sprint_id AS sprintId, s.name AS sprintName, rd.local_date AS localDate,
              rd.user_id AS userId, u.email, rd.attempts, rd.last_attempt_at AS lastAttemptAt,
              rd.sent_at AS sentAt, rd.sent_count AS sentCount,
-             rd.automatic_sent AS automaticSent, rd.last_error AS lastError
+             rd.automatic_sent AS automaticSent, rd.automatic_first_sent AS automaticFirstSent,
+             rd.automatic_second_sent AS automaticSecondSent, rd.last_error AS lastError
       FROM reminder_deliveries rd
       JOIN users u ON u.id = rd.user_id JOIN sprints s ON s.id = rd.sprint_id
       ORDER BY rd.local_date DESC, u.email COLLATE NOCASE LIMIT 100
@@ -667,6 +693,23 @@ export class StandupStore {
       WHERE sm.sprint_id = ? AND u.reminders_enabled = 1 AND s.id IS NULL
       ORDER BY u.email COLLATE NOCASE
     `).all(localDate, sprintId));
+  }
+
+  responseRate(sprintId, localDate) {
+    const total = Number(this.db.prepare('SELECT COUNT(*) AS count FROM sprint_members WHERE sprint_id = ?').get(sprintId).count);
+    const submitted = (date) => Number(this.db.prepare(`
+      SELECT COUNT(DISTINCT s.user_id) AS count
+      FROM submissions s JOIN sprint_members sm ON sm.sprint_id = s.sprint_id AND sm.user_id = s.user_id
+      WHERE s.sprint_id = ? AND s.local_date = ?
+    `).get(sprintId, date).count);
+    const previous = new Date(`${localDate}T00:00:00.000Z`);
+    previous.setUTCDate(previous.getUTCDate() - 1);
+    const previousDate = previous.toISOString().slice(0, 10);
+    const currentSubmitted = submitted(localDate);
+    const previousSubmitted = submitted(previousDate);
+    const currentPercent = total ? Math.round((currentSubmitted / total) * 100) : 0;
+    const previousPercent = total ? Math.round((previousSubmitted / total) * 100) : 0;
+    return { total, submitted: currentSubmitted, percent: currentPercent, previousDate, previousSubmitted, previousPercent, change: currentPercent - previousPercent };
   }
 
   discordDelivery(sprintId, localDate) {
@@ -686,11 +729,13 @@ export class StandupStore {
     `).run(sprintId, localDate, this.nowIso());
   }
 
-  markDiscordSent(sprintId, localDate, { automatic = false } = {}) {
+  markDiscordSent(sprintId, localDate, { automaticPhase = null } = {}) {
     this.db.prepare(`
-      UPDATE discord_deliveries SET sent_at = ?, automatic_sent = CASE WHEN ? = 1 THEN 1 ELSE automatic_sent END,
+      UPDATE discord_deliveries SET sent_at = ?, automatic_sent = CASE WHEN ? IS NOT NULL THEN 1 ELSE automatic_sent END,
+        automatic_first_sent = CASE WHEN ? = 'first' THEN 1 ELSE automatic_first_sent END,
+        automatic_second_sent = CASE WHEN ? = 'second' THEN 1 ELSE automatic_second_sent END,
         last_error = NULL WHERE sprint_id = ? AND local_date = ?
-    `).run(this.nowIso(), automatic ? 1 : 0, sprintId, localDate);
+    `).run(this.nowIso(), automaticPhase, automaticPhase, automaticPhase, sprintId, localDate);
   }
 
   markDiscordFailed(sprintId, localDate, error) {
@@ -698,18 +743,22 @@ export class StandupStore {
       .run(String(error).slice(0, 1000), sprintId, localDate);
   }
 
-  markDiscordAutomaticComplete(sprintId, localDate) {
+  markDiscordAutomaticComplete(sprintId, localDate, automaticPhase) {
     this.db.prepare(`
-      INSERT INTO discord_deliveries (sprint_id, local_date, automatic_sent, sent_at)
-      VALUES (?, ?, 1, ?)
-      ON CONFLICT(sprint_id, local_date) DO UPDATE SET automatic_sent = 1, sent_at = excluded.sent_at
-    `).run(sprintId, localDate, this.nowIso());
+      INSERT INTO discord_deliveries (sprint_id, local_date, automatic_sent, automatic_first_sent, automatic_second_sent, sent_at)
+      VALUES (?, ?, 1, ?, ?, ?)
+      ON CONFLICT(sprint_id, local_date) DO UPDATE SET automatic_sent = 1,
+        automatic_first_sent = CASE WHEN ? = 'first' THEN 1 ELSE automatic_first_sent END,
+        automatic_second_sent = CASE WHEN ? = 'second' THEN 1 ELSE automatic_second_sent END,
+        sent_at = excluded.sent_at
+    `).run(sprintId, localDate, automaticPhase === 'first' ? 1 : 0, automaticPhase === 'second' ? 1 : 0, this.nowIso(), automaticPhase, automaticPhase);
   }
 
   discordDeliveryStatus() {
     return rows(this.db.prepare(`
       SELECT dd.sprint_id AS sprintId, s.name AS sprintName, dd.local_date AS localDate, dd.attempts,
              dd.last_attempt_at AS lastAttemptAt, dd.sent_at AS sentAt, dd.automatic_sent AS automaticSent,
+             dd.automatic_first_sent AS automaticFirstSent, dd.automatic_second_sent AS automaticSecondSent,
              dd.last_error AS lastError
       FROM discord_deliveries dd JOIN sprints s ON s.id = dd.sprint_id
       ORDER BY dd.local_date DESC LIMIT 100

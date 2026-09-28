@@ -290,14 +290,18 @@ export async function createStandupApplication(options = {}) {
   });
 
   app.patch(`${config.basePath}/api/admin/reminders`, requireSameOrigin, requireAdmin, (req, res) => {
+    const firstTime = answer(req.body?.firstTime);
     const time = answer(req.body?.time);
-    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
-      return res.status(400).json({ message: 'Choose a valid reminder time.' });
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(firstTime) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      return res.status(400).json({ message: 'Choose valid first and second reminder times.' });
+    }
+    if (firstTime >= time) {
+      return res.status(400).json({ message: 'The first reminder must be earlier than the second reminder.' });
     }
     if (typeof req.body?.emailDailyEnabled !== 'boolean' || typeof req.body?.discordDailyEnabled !== 'boolean') {
       return res.status(400).json({ message: 'Choose whether each daily reminder channel is enabled.' });
     }
-    res.json(store.setReminderSettings({ time, emailDailyEnabled: req.body.emailDailyEnabled, discordDailyEnabled: req.body.discordDailyEnabled }));
+    res.json(store.setReminderSettings({ firstTime, time, emailDailyEnabled: req.body.emailDailyEnabled, discordDailyEnabled: req.body.discordDailyEnabled }));
   });
 
   app.post(`${config.basePath}/api/admin/reminders/send`, requireSameOrigin, requireAdmin, async (req, res) => {

@@ -17,11 +17,15 @@ test('reminder email includes a random line and ASCII art in text and HTML', asy
     sprint: { name: 'Sprint 1' },
     localDate: '2026-09-13',
     applicationUrl: 'https://example.com/standup/',
+    reminderKind: 'second',
+    responseRate: { submitted: 2, total: 5, percent: 40, change: -10 },
   });
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].to, 'friend@example.com');
   assert.match(messages[0].text, /Tiny updates prevent giant surprises\./);
+  assert.match(messages[0].subject, /Second standup reminder/);
+  assert.match(messages[0].text, /2\/5 \(40%\) \[-10 pts vs yesterday\]/);
   assert.match(messages[0].text, /\( o\.o \)/);
   assert.match(messages[0].html, /Tiny updates prevent giant surprises\./);
   assert.match(messages[0].html, /A&amp;B/);
@@ -40,10 +44,13 @@ test('Discord reminder posts missing people without allowing mentions', async ()
   await notifier.send({
     sprint: { name: 'Sprint 1' }, localDate: '2026-09-13',
     users: [{ name: '@One', email: 'one@example.com', discordName: '123456789012345678' }], applicationUrl: 'https://example.com/standup/',
+    reminderKind: 'first', responseRate: { submitted: 1, total: 2, percent: 50, change: 5 },
   });
   assert.equal(requests.length, 1);
   const payload = JSON.parse(requests[0].options.body);
   assert.match(payload.content, /<@123456789012345678>/);
   assert.match(payload.content, /Tiny updates prevent giant surprises\./);
+  assert.match(payload.content, /First standup reminder/);
+  assert.match(payload.content, /1\/2 \(50%\) \[\+5 pts vs yesterday\]/);
   assert.deepEqual(payload.allowed_mentions, { parse: [], users: ['123456789012345678'] });
 });

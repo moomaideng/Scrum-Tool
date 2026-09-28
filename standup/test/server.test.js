@@ -164,7 +164,7 @@ test('hardcoded admin password can start a new sprint', async (t) => {
 
   const reminderTime = await fetch(`${origin}/standup/api/admin/reminders`, {
     method: 'PATCH', headers: { ...headers, Cookie: adminCookie },
-    body: JSON.stringify({ time: '19:30', emailDailyEnabled: true, discordDailyEnabled: false }),
+    body: JSON.stringify({ firstTime: '10:00', time: '19:30', emailDailyEnabled: true, discordDailyEnabled: false }),
   });
   assert.equal(reminderTime.status, 200);
   assert.equal((await reminderTime.json()).time, '19:30');
