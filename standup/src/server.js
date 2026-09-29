@@ -91,7 +91,10 @@ export async function createStandupApplication(options = {}) {
 
   app.disable('x-powered-by');
   app.enable('strict routing');
-  app.set('trust proxy', 'loopback');
+  // Nginx reaches this container through Docker's private bridge network. Trust
+  // that local proxy chain so req.ip resolves the X-Forwarded-For client IP.
+  // The production port is bound to 127.0.0.1 and is not publicly reachable.
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
   app.use(express.json({ limit: '32kb' }));
   app.use(express.urlencoded({ extended: false, limit: '32kb' }));
 
@@ -126,8 +129,10 @@ export async function createStandupApplication(options = {}) {
     const id = store.createAdminAuditEvent({ action, details, ipAddress, location: privateOrLocalIp(ipAddress) ? 'Private/local network' : 'Looking up location…' });
     if (!privateOrLocalIp(ipAddress)) {
       void locationLookup(ipAddress)
-        .then((location) => store.updateAdminAuditLocation(id, location))
-        .catch(() => store.updateAdminAuditLocation(id, 'Location unavailable'));
+        .then(
+          (location) => { try { store.updateAdminAuditLocation(id, location); } catch {} },
+          () => { try { store.updateAdminAuditLocation(id, 'Location unavailable'); } catch {} },
+        );
     }
   }
 

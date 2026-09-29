@@ -134,6 +134,7 @@ test('hardcoded admin password can start a new sprint', async (t) => {
   };
   const { app } = await createStandupApplication({
     config, store, googleClient: {}, sheetSync: { enabled: false }, mailer: { enabled: false }, scheduler: { async runOnce() {} },
+    locationLookup: async () => 'Bangkok, Thailand',
   });
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
@@ -145,13 +146,15 @@ test('hardcoded admin password can start a new sprint', async (t) => {
   const origin = `http://127.0.0.1:${server.address().port}`;
   const headers = { 'Content-Type': 'application/json', Origin: config.appOrigin };
   const unlock = await fetch(`${origin}/standup/api/admin/session`, {
-    method: 'POST', headers, body: JSON.stringify({ password: 'admin' }),
+    method: 'POST', headers: { ...headers, 'X-Forwarded-For': '203.0.113.8' }, body: JSON.stringify({ password: 'admin' }),
   });
   assert.equal(unlock.status, 200);
   const adminCookie = unlock.headers.get('set-cookie').split(';')[0];
   const adminDashboard = await fetch(`${origin}/standup/api/admin`, { headers: { Cookie: adminCookie } });
   assert.equal(adminDashboard.status, 200);
-  assert.equal((await adminDashboard.json()).audit[0].action, 'Admin sign-in');
+  const adminDashboardData = await adminDashboard.json();
+  assert.equal(adminDashboardData.audit[0].action, 'Admin sign-in');
+  assert.equal(adminDashboardData.audit[0].ipAddress, '203.0.113.8');
   const create = await fetch(`${origin}/standup/api/admin/sprints`, {
     method: 'POST', headers: { ...headers, Cookie: adminCookie }, body: JSON.stringify({ name: 'Sprint 1' }),
   });
