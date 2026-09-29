@@ -130,9 +130,9 @@ test('admin can manually send reminders before the scheduled time', async (t) =>
   assert.equal(count, 2);
 });
 
-test('scheduler posts one Discord reminder after the configured time', async (t) => {
+test('scheduler posts one Discord reminder per automatic phase', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'standup-scheduler-'));
-  const now = new Date('2026-09-13T13:05:00.000Z');
+  let now = new Date('2026-09-13T03:05:00.000Z'); // 10:05 Bangkok
   const store = new StandupStore(directory, { now: () => now });
   await store.initialize();
   t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
@@ -146,8 +146,14 @@ test('scheduler posts one Discord reminder after the configured time', async (t)
     applicationUrl: 'https://example.com/standup/', now: () => now, logger: { error() {} },
   });
   await scheduler.runOnce();
+  now = new Date('2026-09-13T13:05:00.000Z'); // 20:05 Bangkok
   await scheduler.runOnce();
-  assert.equal(sent.length, 1);
+  now = new Date('2026-09-13T13:21:00.000Z'); // more than the retry guard, still second phase
+  await scheduler.runOnce();
+  assert.equal(sent.length, 2);
   assert.equal(sent[0].users[0].email, 'one@example.com');
-  assert.equal(store.discordDeliveryStatus()[0].automaticSent, 1);
+  assert.equal(sent[0].reminderKind, 'first');
+  assert.equal(sent[1].reminderKind, 'second');
+  assert.equal(store.discordDeliveryStatus()[0].automaticFirstSent, 1);
+  assert.equal(store.discordDeliveryStatus()[0].automaticSecondSent, 1);
 });

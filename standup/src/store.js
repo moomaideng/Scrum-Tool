@@ -62,6 +62,7 @@ export class StandupStore {
       CREATE TABLE IF NOT EXISTS admin_audit_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         action TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT 'Administrator',
         details TEXT NOT NULL DEFAULT '',
         ip_address TEXT NOT NULL DEFAULT '',
         location TEXT NOT NULL DEFAULT 'Unknown',
@@ -143,6 +144,10 @@ export class StandupStore {
     }
     if (!userColumns.some((column) => column.name === 'discord_name')) {
       this.db.exec("ALTER TABLE users ADD COLUMN discord_name TEXT NOT NULL DEFAULT '';");
+    }
+    const auditColumns = this.db.prepare('PRAGMA table_info(admin_audit_events)').all();
+    if (!auditColumns.some((column) => column.name === 'actor')) {
+      this.db.exec("ALTER TABLE admin_audit_events ADD COLUMN actor TEXT NOT NULL DEFAULT 'Administrator';");
     }
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_subject ON users(google_subject) WHERE google_subject IS NOT NULL;');
     const reminderColumns = this.db.prepare('PRAGMA table_info(reminder_deliveries)').all();
@@ -443,11 +448,11 @@ export class StandupStore {
     return session;
   }
 
-  createAdminAuditEvent({ action, details = '', ipAddress = '', location = 'Unknown' }) {
+  createAdminAuditEvent({ action, actor = 'Administrator', details = '', ipAddress = '', location = 'Unknown' }) {
     const result = this.db.prepare(`
-      INSERT INTO admin_audit_events (action, details, ip_address, location, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(String(action).slice(0, 100), String(details).slice(0, 500), String(ipAddress).slice(0, 100), String(location).slice(0, 200), this.nowIso());
+      INSERT INTO admin_audit_events (action, actor, details, ip_address, location, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(String(action).slice(0, 100), String(actor).slice(0, 300), String(details).slice(0, 500), String(ipAddress).slice(0, 100), String(location).slice(0, 200), this.nowIso());
     return Number(result.lastInsertRowid);
   }
 
@@ -455,11 +460,15 @@ export class StandupStore {
     this.db.prepare('UPDATE admin_audit_events SET location = ? WHERE id = ?').run(String(location).slice(0, 200), id);
   }
 
-  listAdminAuditEvents(limit = 100) {
+  listAdminAuditEvents(limit = 100, offset = 0) {
     return rows(this.db.prepare(`
-      SELECT id, action, details, ip_address AS ipAddress, location, created_at AS createdAt
-      FROM admin_audit_events ORDER BY id DESC LIMIT ?
-    `).all(limit));
+      SELECT id, action, actor, details, ip_address AS ipAddress, location, created_at AS createdAt
+      FROM admin_audit_events ORDER BY id DESC LIMIT ? OFFSET ?
+    `).all(limit, offset));
+  }
+
+  countAdminAuditEvents() {
+    return Number(this.db.prepare('SELECT COUNT(*) AS count FROM admin_audit_events').get().count);
   }
 
   elevateSession(token, seconds = 60 * 60) {
@@ -743,7 +752,9 @@ export class StandupStore {
   discordDelivery(sprintId, localDate) {
     return row(this.db.prepare(`
       SELECT sprint_id AS sprintId, local_date AS localDate, attempts, last_attempt_at AS lastAttemptAt,
-             sent_at AS sentAt, automatic_sent AS automaticSent, last_error AS lastError
+             sent_at AS sentAt, automatic_sent AS automaticSent,
+             automatic_first_sent AS automaticFirstSent, automatic_second_sent AS automaticSecondSent,
+             last_error AS lastError
       FROM discord_deliveries WHERE sprint_id = ? AND local_date = ?
     `).get(sprintId, localDate));
   }

@@ -124,9 +124,9 @@ export async function createStandupApplication(options = {}) {
     next();
   }
 
-  function audit(req, action, details = '') {
+  function audit(req, action, details = '', actor = 'Administrator') {
     const ipAddress = requestIp(req);
-    const id = store.createAdminAuditEvent({ action, details, ipAddress, location: privateOrLocalIp(ipAddress) ? 'Private/local network' : 'Looking up location…' });
+    const id = store.createAdminAuditEvent({ action, actor, details, ipAddress, location: privateOrLocalIp(ipAddress) ? 'Private/local network' : 'Looking up location…' });
     if (!privateOrLocalIp(ipAddress)) {
       void locationLookup(ipAddress)
         .then(
@@ -169,6 +169,7 @@ export async function createStandupApplication(options = {}) {
         avatarUrl: profile.picture ?? null,
       });
       const session = store.createSession(user.id);
+      audit(req, 'Member signed in', '', `${user.name} <${user.email}>`);
       res.setHeader('Set-Cookie', sessionCookie(config, session.token));
       return res.redirect(303, `${config.basePath}/`);
     } catch (error) {
@@ -178,6 +179,7 @@ export async function createStandupApplication(options = {}) {
   });
 
   app.post(`${config.basePath}/api/logout`, loadSession, requireSameOrigin, (req, res) => {
+    audit(req, 'Member signed out', '', `${req.standupSession.name} <${req.standupSession.email}>`);
     store.deleteSession(req.standupToken);
     res.setHeader('Set-Cookie', clearSessionCookie(config));
     res.status(204).end();
@@ -228,6 +230,7 @@ export async function createStandupApplication(options = {}) {
     }
     const result = store.upsertToday(req.standupSession.id, answers);
     if (result.kind === 'no-sprint') return res.status(409).json({ message: 'There is no active sprint yet.' });
+    audit(req, 'Standup saved', result.submission.localDate, `${req.standupSession.name} <${req.standupSession.email}>`);
     void scheduler.runOnce();
     res.json(result.submission);
   });
@@ -249,6 +252,9 @@ export async function createStandupApplication(options = {}) {
   });
 
   app.get(`${config.basePath}/api/admin`, requireAdmin, (req, res) => {
+    const requestedAuditOffset = Number(req.query.auditOffset ?? 0);
+    const auditOffset = Number.isSafeInteger(requestedAuditOffset) && requestedAuditOffset >= 0 ? requestedAuditOffset : 0;
+    const auditLimit = 5;
     res.json({
       users: store.listUsers().map((user) => ({ ...user, remindersEnabled: Boolean(user.remindersEnabled) })),
       allowedEmails: store.listAllowedEmails(),
@@ -256,7 +262,12 @@ export async function createStandupApplication(options = {}) {
       sheet: { enabled: sheetSync.enabled, jobs: store.sheetSyncStatus() },
       email: { enabled: mailer.enabled, ...store.getReminderSettings(), deliveries: store.reminderStatus() },
       discord: { enabled: discordNotifier.enabled, dailyEnabled: store.getReminderSettings().discordDailyEnabled, deliveries: store.discordDeliveryStatus() },
-      audit: store.listAdminAuditEvents(),
+      audit: {
+        events: store.listAdminAuditEvents(auditLimit, auditOffset),
+        total: store.countAdminAuditEvents(),
+        offset: auditOffset,
+        limit: auditLimit,
+      },
     });
   });
 

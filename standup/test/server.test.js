@@ -86,6 +86,10 @@ test('Google login creates a cookie session and permits a current-day submission
   });
   assert.equal(submission.status, 200);
   assert.equal((await submission.json()).done, 'Finished auth');
+  assert.deepEqual(store.listAdminAuditEvents().map(({ action, actor }) => ({ action, actor })), [
+    { action: 'Standup saved', actor: 'Member <member@example.com>' },
+    { action: 'Member signed in', actor: 'Member <member@example.com>' },
+  ]);
 
   const dashboard = await fetch(`${origin}/standup/api/dashboard`, { headers: { Cookie: cookie } });
   const dashboardBody = await dashboard.json();
@@ -153,8 +157,17 @@ test('hardcoded admin password can start a new sprint', async (t) => {
   const adminDashboard = await fetch(`${origin}/standup/api/admin`, { headers: { Cookie: adminCookie } });
   assert.equal(adminDashboard.status, 200);
   const adminDashboardData = await adminDashboard.json();
-  assert.equal(adminDashboardData.audit[0].action, 'Admin sign-in');
-  assert.equal(adminDashboardData.audit[0].ipAddress, '203.0.113.8');
+  assert.equal(adminDashboardData.audit.events[0].action, 'Admin sign-in');
+  assert.equal(adminDashboardData.audit.events[0].ipAddress, '203.0.113.8');
+  assert.equal(adminDashboardData.audit.limit, 5);
+  for (let index = 0; index < 5; index += 1) {
+    store.createAdminAuditEvent({ action: `Test activity ${index}` });
+  }
+  const secondAuditPage = await fetch(`${origin}/standup/api/admin?auditOffset=5`, { headers: { Cookie: adminCookie } });
+  const secondAuditPageData = await secondAuditPage.json();
+  assert.equal(secondAuditPageData.audit.total, 6);
+  assert.equal(secondAuditPageData.audit.events.length, 1);
+  assert.equal(secondAuditPageData.audit.events[0].action, 'Admin sign-in');
   const create = await fetch(`${origin}/standup/api/admin/sprints`, {
     method: 'POST', headers: { ...headers, Cookie: adminCookie }, body: JSON.stringify({ name: 'Sprint 1' }),
   });

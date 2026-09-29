@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { StandupStore } from '../src/store.js';
 
@@ -121,11 +122,34 @@ test('an admin can create a historical submission for a sprint member', async (t
 
 test('admin audit events retain their action, IP, and resolved location', async (t) => {
   const { store } = await fixture(t);
-  const id = store.createAdminAuditEvent({ action: 'Discord reminder posted manually', details: '2 people missing', ipAddress: '203.0.113.8', location: 'Looking up location…' });
+  const id = store.createAdminAuditEvent({ action: 'Discord reminder posted manually', actor: 'Passa <passa@example.com>', details: '2 people missing', ipAddress: '203.0.113.8', location: 'Looking up location…' });
   store.updateAdminAuditLocation(id, 'Bangkok, Thailand');
   assert.deepEqual(store.listAdminAuditEvents(), [{
-    id, action: 'Discord reminder posted manually', details: '2 people missing', ipAddress: '203.0.113.8', location: 'Bangkok, Thailand', createdAt: '2026-09-13T05:00:00.000Z',
+    id, action: 'Discord reminder posted manually', actor: 'Passa <passa@example.com>', details: '2 people missing', ipAddress: '203.0.113.8', location: 'Bangkok, Thailand', createdAt: '2026-09-13T05:00:00.000Z',
   }]);
+});
+
+test('existing admin audit entries gain the default actor during migration', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'standup-audit-migration-'));
+  const file = path.join(directory, 'standup.sqlite');
+  const legacy = new DatabaseSync(file);
+  legacy.exec(`
+    CREATE TABLE admin_audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
+      ip_address TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT 'Unknown',
+      created_at TEXT NOT NULL
+    );
+    INSERT INTO admin_audit_events (action, details, ip_address, location, created_at)
+    VALUES ('Admin sign-in', 'Unlocked the admin console', '127.0.0.1', 'Private/local network', '2026-09-13T05:00:00.000Z');
+  `);
+  legacy.close();
+  const store = new StandupStore(directory);
+  await store.initialize();
+  t.after(() => { store.close(); return rm(directory, { recursive: true, force: true }); });
+  assert.equal(store.listAdminAuditEvents()[0].actor, 'Administrator');
 });
 
 test('existing users are migrated onto the allowlist only once', async (t) => {

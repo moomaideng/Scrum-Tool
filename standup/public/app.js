@@ -1,5 +1,5 @@
 const BASE = '/standup';
-const state = { me: null, dashboard: null, admin: null, adminRecords: null, adminAuthenticated: false, config: null };
+const state = { me: null, dashboard: null, admin: null, adminRecords: null, adminAuthenticated: false, config: null, auditOffset: 0 };
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map((element) => [element.id, element]));
 
 function notice(element, message = '') {
@@ -263,9 +263,10 @@ async function unlockAdmin(event) {
   }
 }
 
-async function loadAdmin() {
+async function loadAdmin(auditOffset = state.auditOffset) {
   try {
-    state.admin = await api('/api/admin');
+    state.admin = await api(`/api/admin?auditOffset=${encodeURIComponent(auditOffset)}`);
+    state.auditOffset = state.admin.audit.offset;
     elements['admin-login'].hidden = true;
     elements['admin-controls'].hidden = false;
     renderAdmin();
@@ -351,18 +352,19 @@ function renderAdmin() {
   elements['send-reminders'].disabled = !state.admin.email.enabled;
   elements['send-discord'].disabled = !state.admin.discord.enabled;
   elements['retry-sheets'].disabled = !state.admin.sheet.enabled;
-  elements['audit-count'].textContent = `${state.admin.audit.length} recent`;
+  const audit = state.admin.audit;
+  elements['audit-count'].textContent = `${audit.total} total · ${audit.total ? `page ${Math.floor(audit.offset / audit.limit) + 1}` : 'page 1'}`;
   elements['audit-events'].replaceChildren();
-  if (!state.admin.audit.length) {
+  if (!audit.events.length) {
     elements['audit-events'].textContent = 'No admin activity recorded yet.';
   } else {
-    for (const event of state.admin.audit) {
+    for (const event of audit.events) {
       const row = document.createElement('div');
       row.className = 'audit-event';
       const title = document.createElement('strong');
       title.textContent = event.action;
       const details = document.createElement('small');
-      details.textContent = [event.details, event.ipAddress, event.location].filter(Boolean).join(' · ');
+      details.textContent = [event.actor, event.details, event.ipAddress, event.location].filter(Boolean).join(' · ');
       const when = document.createElement('time');
       when.dateTime = event.createdAt;
       when.textContent = formatMoment(event.createdAt);
@@ -370,6 +372,8 @@ function renderAdmin() {
       elements['audit-events'].append(row);
     }
   }
+  elements['audit-previous'].disabled = audit.offset === 0;
+  elements['audit-next'].disabled = audit.offset + audit.events.length >= audit.total;
   elements['integration-jobs'].replaceChildren();
   if (!state.admin.sheet.jobs.length) {
     elements['integration-jobs'].textContent = 'No Sheet sync jobs yet.';
@@ -603,6 +607,8 @@ elements['allowed-email-form'].addEventListener('submit', addAllowedEmail);
 elements['reminder-form'].addEventListener('submit', saveReminderTime);
 elements['send-reminders'].addEventListener('click', sendRemindersNow);
 elements['send-discord'].addEventListener('click', sendDiscordNow);
+elements['audit-previous'].addEventListener('click', () => loadAdmin(Math.max(0, state.auditOffset - state.admin.audit.limit)));
+elements['audit-next'].addEventListener('click', () => loadAdmin(state.auditOffset + state.admin.audit.limit));
 elements['record-picker-form'].addEventListener('submit', loadAdminRecords);
 elements['retry-sheets'].addEventListener('click', async () => {
   try {
