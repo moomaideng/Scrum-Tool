@@ -49,6 +49,23 @@ function normalizedEmail(value) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
+function requestIp(req) {
+  return String(req.ip ?? '').replace(/^::ffff:/, '').slice(0, 100);
+}
+
+function privateOrLocalIp(ip) {
+  return !ip || ip === '::' || ip === '::1' || ip.startsWith('127.') || ip.startsWith('10.') || ip.startsWith('192.168.')
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80:');
+}
+
+async function lookupIpLocation(ip) {
+  if (privateOrLocalIp(ip)) return 'Private/local network';
+  const response = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, { signal: AbortSignal.timeout(3_000) });
+  const data = await response.json();
+  if (!response.ok || data.success === false) return 'Location unavailable';
+  return [data.city, data.region, data.country].filter(Boolean).join(', ') || 'Location unavailable';
+}
+
 export async function createStandupApplication(options = {}) {
   const config = options.config ?? readConfig();
   const store = options.store ?? new StandupStore(config.dataDirectory);
@@ -61,6 +78,7 @@ export async function createStandupApplication(options = {}) {
   }, store);
   const mailer = options.mailer ?? new ReminderMailer(config.smtp);
   const discordNotifier = options.discordNotifier ?? new DiscordNotifier({ webhookUrl: config.discordWebhookUrl });
+  const locationLookup = options.locationLookup ?? lookupIpLocation;
   const scheduler = options.scheduler ?? new StandupScheduler({
     store,
     sheetSync,
@@ -101,6 +119,16 @@ export async function createStandupApplication(options = {}) {
     }
     req.standupAdminToken = token;
     next();
+  }
+
+  function audit(req, action, details = '') {
+    const ipAddress = requestIp(req);
+    const id = store.createAdminAuditEvent({ action, details, ipAddress, location: privateOrLocalIp(ipAddress) ? 'Private/local network' : 'Looking up location…' });
+    if (!privateOrLocalIp(ipAddress)) {
+      void locationLookup(ipAddress)
+        .then((location) => store.updateAdminAuditLocation(id, location))
+        .catch(() => store.updateAdminAuditLocation(id, 'Location unavailable'));
+    }
   }
 
   app.get(`${config.basePath}/health`, (req, res) => {
@@ -210,6 +238,7 @@ export async function createStandupApplication(options = {}) {
     }
     adminAttempts.delete(key);
     const session = store.createAdminSession();
+    audit(req, 'Admin sign-in', 'Unlocked the admin console');
     res.setHeader('Set-Cookie', adminCookie(config, session.token));
     res.json({ adminUntil: session.expiresAt });
   });
@@ -222,6 +251,7 @@ export async function createStandupApplication(options = {}) {
       sheet: { enabled: sheetSync.enabled, jobs: store.sheetSyncStatus() },
       email: { enabled: mailer.enabled, ...store.getReminderSettings(), deliveries: store.reminderStatus() },
       discord: { enabled: discordNotifier.enabled, dailyEnabled: store.getReminderSettings().discordDailyEnabled, deliveries: store.discordDeliveryStatus() },
+      audit: store.listAdminAuditEvents(),
     });
   });
 
@@ -231,6 +261,7 @@ export async function createStandupApplication(options = {}) {
     const discordName = answer(req.body?.discordName);
     if (discordName.length > 100) return res.status(400).json({ message: 'Discord name must be no more than 100 characters.' });
     const allowed = store.allowEmail(email, discordName);
+    audit(req, 'Allowed email added', email);
     void scheduler.runOnce();
     res.status(201).json(allowed);
   });
@@ -239,6 +270,7 @@ export async function createStandupApplication(options = {}) {
     const email = normalizedEmail(req.params.email);
     if (!email) return res.status(400).json({ message: 'Enter a valid email address.' });
     if (!store.removeAllowedEmail(email)) return res.status(404).json({ message: 'That email is not on the allowlist.' });
+    audit(req, 'Allowed email removed', email);
     void scheduler.runOnce();
     res.status(204).end();
   });
@@ -247,6 +279,7 @@ export async function createStandupApplication(options = {}) {
     const name = answer(req.body?.name).replace(/\s+/g, ' ');
     if (name.length < 1 || name.length > 60) return res.status(400).json({ message: 'Use a sprint name between 1 and 60 characters.' });
     const sprint = store.createSprint(name);
+    audit(req, 'Sprint started', sprint.name);
     void scheduler.runOnce();
     res.status(201).json(sprint);
   });
@@ -274,6 +307,7 @@ export async function createStandupApplication(options = {}) {
     const result = store.upsertAdminSubmission(sprintId, userId, localDate, answers);
     if (result.kind === 'no-sprint') return res.status(404).json({ message: 'That sprint no longer exists.' });
     if (result.kind === 'not-member') return res.status(404).json({ message: 'That person is not a member of this sprint.' });
+    audit(req, 'Standup record edited', `Sprint ${sprintId}, ${localDate}`);
     void scheduler.runOnce();
     res.json(result.submission);
   });
@@ -286,6 +320,7 @@ export async function createStandupApplication(options = {}) {
     let user = hasDiscordName ? store.setUserDiscordName(req.params.id, req.body.discordName) : store.getUser(req.params.id);
     if (user && hasReminderSetting) user = store.setUserReminders(req.params.id, req.body.remindersEnabled);
     if (!user) return res.status(404).json({ message: 'That user no longer exists.' });
+    audit(req, 'Member settings changed', user.email);
     res.json({ ...user, remindersEnabled: Boolean(user.remindersEnabled) });
   });
 
@@ -301,7 +336,9 @@ export async function createStandupApplication(options = {}) {
     if (typeof req.body?.emailDailyEnabled !== 'boolean' || typeof req.body?.discordDailyEnabled !== 'boolean') {
       return res.status(400).json({ message: 'Choose whether each daily reminder channel is enabled.' });
     }
-    res.json(store.setReminderSettings({ firstTime, time, emailDailyEnabled: req.body.emailDailyEnabled, discordDailyEnabled: req.body.discordDailyEnabled }));
+    const settings = store.setReminderSettings({ firstTime, time, emailDailyEnabled: req.body.emailDailyEnabled, discordDailyEnabled: req.body.discordDailyEnabled });
+    audit(req, 'Reminder schedule changed', `First ${firstTime}; second ${time}`);
+    res.json(settings);
   });
 
   app.post(`${config.basePath}/api/admin/reminders/send`, requireSameOrigin, requireAdmin, async (req, res) => {
@@ -309,6 +346,7 @@ export async function createStandupApplication(options = {}) {
     const result = await scheduler.sendRemindersNow();
     if (result.busy) return res.status(409).json({ message: 'Reminder processing is already running.' });
     if (result.noSprint) return res.status(409).json({ message: 'There is no active sprint.' });
+    audit(req, 'Email reminders sent manually', `${result.sent} sent; ${result.failed} failed`);
     res.json(result);
   });
 
@@ -317,13 +355,21 @@ export async function createStandupApplication(options = {}) {
     const result = await scheduler.sendDiscordReminderNow();
     if (result.busy) return res.status(409).json({ message: 'Reminder processing is already running.' });
     if (result.noSprint) return res.status(409).json({ message: 'There is no active sprint.' });
-    if (result.failed) return res.status(502).json({ message: 'Discord did not accept the reminder. Try again shortly.' });
-    if (result.noMissing) return res.json({ ...result, message: 'Everyone has already submitted today.' });
+    if (result.failed) {
+      audit(req, 'Discord reminder post failed', `${result.missing} people missing`);
+      return res.status(502).json({ message: 'Discord did not accept the reminder. Try again shortly.' });
+    }
+    if (result.noMissing) {
+      audit(req, 'Discord reminder posted manually', 'No people were missing');
+      return res.json({ ...result, message: 'Everyone has already submitted today.' });
+    }
+    audit(req, 'Discord reminder posted manually', `${result.missing} people missing`);
     res.json(result);
   });
 
   app.post(`${config.basePath}/api/admin/sheets/retry`, requireSameOrigin, requireAdmin, (req, res) => {
     store.retryAllSheetSyncs();
+    audit(req, 'Google Sheet sync retried');
     void scheduler.runOnce();
     res.status(202).json({ message: 'Sheet synchronization has been queued.' });
   });

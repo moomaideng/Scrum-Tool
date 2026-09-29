@@ -100,6 +100,9 @@ button[type="submit"]:hover { background: #25664f; }
 .admin-record { display: grid; gap: 8px; padding: 13px; border: 1px solid #dce5e0; border-radius: 12px; background: #f8fbf9; }
 .admin-record small { color: #73857b; }
 .admin-record textarea { min-height: 64px; }
+.audit-events { display: grid; gap: 8px; margin-top: 14px; }
+.audit-event { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(0, 2fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: #f3f7f5; }
+.audit-event small { color: #63786d; overflow-wrap: anywhere; }.audit-event time { color: #73857b; font-size: .78rem; white-space: nowrap; }
 .secondary-button { background: #e2ede8; color: #275f4c; }
 .danger-button { color: #a12b34; }
 .reminder-action { margin-top: 10px; }
@@ -111,4 +114,4 @@ button[type="submit"]:hover { background: #25664f; }
 .legal-card p { color: #536b5f; line-height: 1.7; }
 .legal-footer { display: flex; gap: 18px; justify-content: center; margin-top: 22px; font-size: .86rem; }
 @media (max-width: 900px) { .dashboard { grid-template-columns: 1fr; }.entry-panel { position: static; }.member-answers { grid-template-columns: 1fr; }.hero-panel { align-items: start; flex-direction: column; }.history-controls { width: 100%; }.history-controls input, .history-controls select { min-width: 0; } }
-@media (max-width: 620px) { .page-shell { padding: 18px 14px 40px; }.login-card { margin: 5vh auto; padding: 30px 23px; }.app-header { align-items: start; }.account-area { flex-wrap: wrap; justify-content: end; }.account-area #account-name { display: none; }.hero-panel, .entry-panel, .team-panel { padding: 20px; border-radius: 17px; }.form-footer, .section-heading, .admin-section-heading { align-items: stretch; flex-direction: column; }.form-footer button { width: 100%; }.inline-form { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .page-shell { padding: 18px 14px 40px; }.login-card { margin: 5vh auto; padding: 30px 23px; }.app-header { align-items: start; }.account-area { flex-wrap: wrap; justify-content: end; }.account-area #account-name { display: none; }.hero-panel, .entry-panel, .team-panel { padding: 20px; border-radius: 17px; }.form-footer, .section-heading, .admin-section-heading { align-items: stretch; flex-direction: column; }.form-footer button { width: 100%; }.inline-form { grid-template-columns: 1fr; }.audit-event { grid-template-columns: 1fr; gap: 3px; } }

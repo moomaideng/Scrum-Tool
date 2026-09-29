@@ -27,6 +27,12 @@ function formatDate(value) {
     .format(new Date(`${value}T00:00:00Z`));
 }
 
+function formatMoment(value) {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok', hourCycle: 'h23',
+  }).format(new Date(value));
+}
+
 function bangkokDate() {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -345,6 +351,25 @@ function renderAdmin() {
   elements['send-reminders'].disabled = !state.admin.email.enabled;
   elements['send-discord'].disabled = !state.admin.discord.enabled;
   elements['retry-sheets'].disabled = !state.admin.sheet.enabled;
+  elements['audit-count'].textContent = `${state.admin.audit.length} recent`;
+  elements['audit-events'].replaceChildren();
+  if (!state.admin.audit.length) {
+    elements['audit-events'].textContent = 'No admin activity recorded yet.';
+  } else {
+    for (const event of state.admin.audit) {
+      const row = document.createElement('div');
+      row.className = 'audit-event';
+      const title = document.createElement('strong');
+      title.textContent = event.action;
+      const details = document.createElement('small');
+      details.textContent = [event.details, event.ipAddress, event.location].filter(Boolean).join(' · ');
+      const when = document.createElement('time');
+      when.dateTime = event.createdAt;
+      when.textContent = formatMoment(event.createdAt);
+      row.append(title, details, when);
+      elements['audit-events'].append(row);
+    }
+  }
   elements['integration-jobs'].replaceChildren();
   if (!state.admin.sheet.jobs.length) {
     elements['integration-jobs'].textContent = 'No Sheet sync jobs yet.';

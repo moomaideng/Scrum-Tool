@@ -59,6 +59,15 @@ export class StandupStore {
         token_hash TEXT PRIMARY KEY,
         expires_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS admin_audit_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        details TEXT NOT NULL DEFAULT '',
+        ip_address TEXT NOT NULL DEFAULT '',
+        location TEXT NOT NULL DEFAULT 'Unknown',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS admin_audit_events_created_at ON admin_audit_events(created_at DESC);
       CREATE TABLE IF NOT EXISTS sprints (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -432,6 +441,25 @@ export class StandupStore {
       return null;
     }
     return session;
+  }
+
+  createAdminAuditEvent({ action, details = '', ipAddress = '', location = 'Unknown' }) {
+    const result = this.db.prepare(`
+      INSERT INTO admin_audit_events (action, details, ip_address, location, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(String(action).slice(0, 100), String(details).slice(0, 500), String(ipAddress).slice(0, 100), String(location).slice(0, 200), this.nowIso());
+    return Number(result.lastInsertRowid);
+  }
+
+  updateAdminAuditLocation(id, location) {
+    this.db.prepare('UPDATE admin_audit_events SET location = ? WHERE id = ?').run(String(location).slice(0, 200), id);
+  }
+
+  listAdminAuditEvents(limit = 100) {
+    return rows(this.db.prepare(`
+      SELECT id, action, details, ip_address AS ipAddress, location, created_at AS createdAt
+      FROM admin_audit_events ORDER BY id DESC LIMIT ?
+    `).all(limit));
   }
 
   elevateSession(token, seconds = 60 * 60) {

@@ -119,6 +119,15 @@ test('an admin can create a historical submission for a sprint member', async (t
   assert.equal(store.sheetSyncStatus()[0].status, 'pending');
 });
 
+test('admin audit events retain their action, IP, and resolved location', async (t) => {
+  const { store } = await fixture(t);
+  const id = store.createAdminAuditEvent({ action: 'Discord reminder posted manually', details: '2 people missing', ipAddress: '203.0.113.8', location: 'Looking up location…' });
+  store.updateAdminAuditLocation(id, 'Bangkok, Thailand');
+  assert.deepEqual(store.listAdminAuditEvents(), [{
+    id, action: 'Discord reminder posted manually', details: '2 people missing', ipAddress: '203.0.113.8', location: 'Bangkok, Thailand', createdAt: '2026-09-13T05:00:00.000Z',
+  }]);
+});
+
 test('existing users are migrated onto the allowlist only once', async (t) => {
   const { store } = await fixture(t);
   const user = store.loginGoogleUser(profile('existing'));
