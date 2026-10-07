@@ -15,7 +15,7 @@ services:
   standup:
     image: ghcr.io/moomaideng/scrum-standup:${IMAGE_TAG:?IMAGE_TAG is required}
     ports:
-      - "127.0.0.1:${STANDUP_PORT:-4174}:3000"
+      - "${STANDUP_PORT:-4174}:3000"
     environment:
       DATA_DIR: /app/data
       PORT: "3000"

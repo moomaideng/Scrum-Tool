@@ -99,6 +99,6 @@ Add these repository secrets for the standup integrations:
 - `STANDUP_SMTP_PASSWORD`
 - `STANDUP_SMTP_FROM`
 
-The retrospective remains on public port 4173. Standup binds only to `127.0.0.1:4174`; add the locations from `deploy/nginx-standup.conf.example` to the existing HTTPS Nginx server block and reload Nginx after validating its configuration. No additional DNS record is required.
+The retrospective remains on public port 4173. Standup publishes host port 4174 on all VM interfaces and forwards it to container port 3000, allowing a containerized proxy to reach it at `http://host.docker.internal:4174`. Restrict direct external access to port 4174 with host/cloud firewall rules. If using Nginx, add the locations from `deploy/nginx-standup.conf.example` to the existing HTTPS server block and reload Nginx after validating its configuration. No additional DNS record is required.
 
 The name field is only a team identity, not authentication. Keep the port limited to your team/network if the notes should be private. Proper account authentication is needed before using it for sensitive or public content.
